@@ -1,0 +1,643 @@
+<meta charset="UTF-8">
+<title>MacAnki</title>
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="MacAnki">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="apple-touch-icon" href="data:image/png;base64,{{ICON_B64}}">
+<style>
+  :root {
+    color-scheme: dark;
+    --text: #f5f6f7;
+    --text-muted: #9aa0aa;
+    --border: rgba(255, 255, 255, 0.12);
+    --accent: #4d9dff;
+    --accent-hover: #2f86ff;
+    --danger: #ff453a;
+    --card-bg: rgba(255, 255, 255, 0.07);
+    --card-shadow: rgba(0, 0, 0, 0.45);
+    --hover-bg: rgba(255, 255, 255, 0.09);
+    --selected-bg: rgba(77, 157, 255, 0.24);
+    --selected-text: #8fc2ff;
+    --sidebar-bg: rgba(18, 18, 22, 0.6);
+    --content-bg: rgba(10, 10, 13, 0.4);
+    --again: #ff453a;
+    --hard: #ff9f0a;
+    --good: #32d74b;
+    --easy: #0a84ff;
+  }
+
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+
+  html, body {
+    margin: 0;
+    padding: 0;
+    height: 100%;
+    overflow: hidden;
+    background: transparent;
+  }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Arial, sans-serif;
+    color: var(--text);
+    font-size: 14px;
+    -webkit-font-smoothing: antialiased;
+    -webkit-touch-callout: none;
+  }
+
+  /* Body's own background becomes the page's canvas background, which paints
+     BELOW any z-index:-1 element regardless of DOM order — so the solid
+     fallback color has to live on this element itself, not on body/html,
+     or it would block the image entirely. */
+  #wallpaper {
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    background-color: #0b0b0d;
+    background-image: url("data:image/jpeg;base64,{{WALLPAPER_B64}}");
+    background-size: cover;
+    background-position: center;
+    filter: brightness(0.5) saturate(1.05);
+  }
+
+  #shell {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    padding-top: env(safe-area-inset-top, 0px);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+
+  #app {
+    flex: 1;
+    min-height: 0;
+    display: grid;
+    grid-template-columns: 240px 1fr;
+    overflow: hidden;
+  }
+
+  /* Sidebar */
+  #sidebar {
+    background: var(--sidebar-bg);
+    backdrop-filter: blur(24px);
+    -webkit-backdrop-filter: blur(24px);
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    user-select: none;
+  }
+
+  #traffic-lights {
+    display: flex;
+    gap: 8px;
+    padding: 16px 16px 12px;
+  }
+
+  #traffic-lights span {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    display: block;
+  }
+
+  #traffic-lights span.red { background: #ff5f57; }
+  #traffic-lights span.yellow { background: #febc2e; }
+  #traffic-lights span.green { background: #28c840; }
+
+  .home-nav-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 0 10px 10px;
+    padding: 9px 11px;
+    border: none;
+    background: transparent;
+    color: var(--text);
+    font-size: 14px;
+    font-weight: 600;
+    border-radius: 8px;
+    cursor: pointer;
+    text-align: left;
+  }
+
+  .home-nav-item:active, .home-nav-item.selected {
+    background: var(--hover-bg);
+  }
+
+  .home-nav-icon { font-size: 16px; opacity: 0.85; }
+
+  .sidebar-header {
+    padding: 4px 16px 10px;
+  }
+
+  .sidebar-title {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+  }
+
+  .icon-btn {
+    width: 30px;
+    height: 30px;
+    border-radius: 8px;
+    border: none;
+    background: transparent;
+    color: var(--text-muted);
+    font-size: 16px;
+    line-height: 1;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .icon-btn:active { background: var(--hover-bg); color: var(--text); }
+
+  #deck-list {
+    flex: 1;
+    overflow-y: auto;
+    padding: 0 10px;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .deck-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 12px;
+    border-radius: 8px;
+    cursor: pointer;
+    margin-bottom: 2px;
+    gap: 8px;
+  }
+
+  .deck-item:active { background: var(--hover-bg); }
+  .deck-item.selected { background: var(--selected-bg); color: var(--selected-text); }
+
+  .deck-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+  .deck-badges { display: flex; gap: 4px; }
+
+  .deck-badge {
+    font-size: 11px;
+    font-weight: 700;
+    border-radius: 8px;
+    padding: 2px 7px;
+    min-width: 16px;
+    text-align: center;
+    color: white;
+  }
+
+  .deck-badge.badge-new { background: var(--easy); }
+  .deck-badge.badge-due { background: var(--again); }
+  .deck-item.selected .deck-badge { filter: brightness(1.15); }
+
+  /* Content */
+  #content {
+    position: relative;
+    overflow: hidden;
+    background: var(--content-bg);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+  }
+
+  .pane {
+    height: 100%;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    padding: 32px 32px 28px;
+    display: flex;
+    flex-direction: column;
+  }
+
+  #study-done {
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    color: var(--text-muted);
+  }
+
+  .empty-icon { font-size: 48px; margin-bottom: 8px; }
+  h1 { font-size: 22px; font-weight: 700; margin: 0 0 4px; text-wrap: balance; }
+  h2 { font-size: 15px; font-weight: 600; margin: 0; }
+  .muted { color: var(--text-muted); font-size: 12.5px; margin: 0; }
+  .accent { color: var(--good); font-weight: 700; }
+
+  .glass-card {
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+  }
+
+  /* Dashboard */
+  .dashboard-header { margin-bottom: 20px; }
+  .dashboard-header h1 { font-size: 26px; }
+
+  .heatmap-card { padding: 18px 20px; margin-bottom: 20px; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+
+  .heatmap-grid {
+    display: grid;
+    grid-auto-flow: column;
+    grid-template-rows: repeat(7, 12px);
+    gap: 3px;
+    width: max-content;
+  }
+
+  .heatmap-cell { width: 12px; height: 12px; border-radius: 2px; background: rgba(255, 255, 255, 0.07); }
+  .heatmap-cell[data-level="1"] { background: rgba(50, 215, 75, 0.35); }
+  .heatmap-cell[data-level="2"] { background: rgba(50, 215, 75, 0.6); }
+  .heatmap-cell[data-level="3"] { background: rgba(50, 215, 75, 0.85); }
+  .heatmap-cell[data-level="4"] { background: rgba(50, 215, 75, 1); }
+
+  .stat-tiles {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 12px;
+    margin-bottom: 20px;
+  }
+
+  .stat-tile { padding: 14px 16px; }
+  .stat-label { font-size: 11px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.03em; margin-bottom: 6px; }
+  .stat-value { font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; }
+
+  .deck-library { overflow: hidden; }
+
+  .deck-library-header {
+    display: grid;
+    grid-template-columns: 1fr 60px 60px;
+    padding: 12px 18px;
+    border-bottom: 1px solid var(--border);
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+  }
+
+  .deck-library-col { text-align: center; }
+
+  .deck-library-row {
+    display: grid;
+    grid-template-columns: 1fr 60px 60px;
+    align-items: center;
+    padding: 13px 18px;
+    cursor: pointer;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .deck-library-row:last-child { border-bottom: none; }
+  .deck-library-row:active { background: var(--hover-bg); }
+
+  .deck-library-name {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .deck-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); flex-shrink: 0; }
+  .deck-library-empty { padding: 24px 18px; text-align: center; color: var(--text-muted); font-size: 13px; }
+
+  /* Action bar */
+  #action-bar {
+    flex-shrink: 0;
+    min-height: 76px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 20px;
+    padding-bottom: calc(10px + env(safe-area-inset-bottom, 0px));
+    flex-wrap: wrap;
+  }
+
+  .pill {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 11px 18px;
+    font-size: 13px;
+    font-weight: 700;
+    color: white;
+    cursor: pointer;
+    letter-spacing: 0.02em;
+  }
+
+  .pill-icon { font-size: 13px; }
+  .pill-magic { background: linear-gradient(135deg, #7b2ff7, #a637f0); border-color: transparent; }
+  .pill-neutral { background: rgba(255, 255, 255, 0.07); }
+  .pill:active { filter: brightness(0.88); }
+
+  .deck-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 20px; gap: 12px; }
+  .deck-actions { display: flex; gap: 4px; flex-wrap: wrap; }
+
+  .text-btn {
+    border: none;
+    background: transparent;
+    color: var(--accent);
+    font-size: 14px;
+    cursor: pointer;
+    padding: 7px 11px;
+    border-radius: 8px;
+  }
+
+  .text-btn:active { background: var(--hover-bg); }
+  .text-btn.danger { color: var(--danger); }
+
+  .primary-btn {
+    border: none;
+    background: var(--accent);
+    color: white;
+    font-size: 14px;
+    font-weight: 600;
+    padding: 10px 20px;
+    border-radius: 10px;
+    cursor: pointer;
+  }
+
+  .primary-btn:active { background: var(--accent-hover); }
+
+  .study-cta { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; padding: 16px 20px; margin-bottom: 24px; }
+  .today-stat { margin-left: auto; }
+
+  .card-list-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; gap: 10px; flex-wrap: wrap; }
+  .card-list-header-right { display: flex; align-items: center; gap: 8px; }
+
+  #card-search {
+    font-family: inherit;
+    font-size: 13px;
+    border: 1px solid var(--border);
+    background: var(--card-bg);
+    color: var(--text);
+    border-radius: 8px;
+    padding: 7px 11px;
+    width: 160px;
+  }
+
+  #card-list { display: flex; flex-direction: column; gap: 6px; }
+
+  .card-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 12px 14px;
+  }
+
+  .card-row .side { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13.5px; }
+  .card-row .side.back { color: var(--text-muted); }
+  .card-row .row-actions { display: flex; gap: 2px; }
+  .no-cards { color: var(--text-muted); font-size: 13px; padding: 20px 0; text-align: center; }
+
+  /* Study view */
+  .study-header { display: flex; align-items: center; gap: 10px; margin-bottom: 20px; flex-shrink: 0; }
+  #study-progress { margin-left: auto; font-variant-numeric: tabular-nums; }
+  .listen-btn { display: flex; align-items: center; gap: 6px; }
+
+  #study-stage { flex: 1; display: flex; align-items: center; justify-content: center; min-height: 0; }
+
+  #flashcard {
+    width: 100%;
+    max-width: 560px;
+    min-height: 260px;
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: 18px;
+    box-shadow: 0 10px 30px var(--card-shadow);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 36px;
+    cursor: pointer;
+  }
+
+  #flashcard-face { font-size: 20px; text-align: center; line-height: 1.5; white-space: pre-wrap; word-break: break-word; }
+  .flashcard-back { border-top: 1px solid var(--border); margin-top: 20px; padding-top: 20px; color: var(--text-muted); font-size: 16px; }
+
+  #study-controls { flex-shrink: 0; display: flex; justify-content: center; padding-top: 20px; }
+  #rating-buttons { display: flex; gap: 14px; }
+
+  .rate-btn {
+    border: none;
+    border-radius: 14px;
+    padding: 18px 40px;
+    font-size: 16px;
+    font-weight: 700;
+    color: white;
+    cursor: pointer;
+    min-width: 150px;
+  }
+
+  .rate-again { background: var(--again); }
+  .rate-good { background: var(--good); }
+
+  /* Modal */
+  #modal-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.55);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 100;
+    padding: 16px;
+  }
+
+  #modal {
+    background: #17171b;
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 22px;
+    width: 460px;
+    max-width: 100%;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
+  }
+
+  #modal h2 { margin-bottom: 14px; }
+
+  #modal-body input, #modal-body textarea {
+    width: 100%;
+    font-family: inherit;
+    font-size: 14px;
+    border: 1px solid var(--border);
+    background: rgba(255, 255, 255, 0.06);
+    color: var(--text);
+    border-radius: 9px;
+    padding: 10px 12px;
+    margin-bottom: 10px;
+    resize: vertical;
+  }
+
+  #modal-body textarea { min-height: 70px; }
+  #modal-body textarea.magic-textarea { min-height: 180px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; }
+  #modal-body label { font-size: 12px; color: var(--text-muted); display: block; margin-bottom: 4px; }
+  #modal-body .hint { font-size: 11.5px; color: var(--text-muted); margin: -6px 0 10px; }
+  #modal-body p.confirm-message { font-size: 14px; margin: 0 0 6px; }
+  .modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 8px; }
+
+  #toast {
+    position: fixed;
+    bottom: calc(90px + env(safe-area-inset-bottom, 0px));
+    left: 50%;
+    transform: translateX(-50%) translateY(10px);
+    background: #17171b;
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 12px 18px;
+    border-radius: 10px;
+    font-size: 13px;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+    z-index: 200;
+    opacity: 0;
+    transition: opacity 0.2s, transform 0.2s;
+    max-width: min(400px, calc(100vw - 32px));
+  }
+
+  #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+  @media (max-width: 720px) {
+    #app { grid-template-columns: 84px 1fr; }
+    #sidebar .deck-name, .sidebar-title, .home-nav-item span:last-child { display: none; }
+    #sidebar { align-items: center; }
+    .home-nav-item { justify-content: center; margin: 0 0 10px; padding: 9px; }
+    .deck-item { justify-content: center; }
+    .pane { padding: 20px 16px 20px; }
+    #action-bar { padding: 8px 12px; padding-bottom: calc(8px + env(safe-area-inset-bottom, 0px)); flex-wrap: wrap; }
+    .pill { padding: 10px 14px; font-size: 12px; }
+  }
+</style>
+<div id="wallpaper"></div>
+
+<div id="shell">
+  <div id="app">
+    <aside id="sidebar">
+      <div id="traffic-lights"><span class="red"></span><span class="yellow"></span><span class="green"></span></div>
+      <button id="home-btn" class="home-nav-item">
+        <span class="home-nav-icon">⌂</span>
+        <span>Dashboard</span>
+      </button>
+      <div class="sidebar-header">
+        <span class="sidebar-title">Decks</span>
+      </div>
+      <div id="deck-list"></div>
+    </aside>
+
+    <main id="content">
+      <div id="dashboard" class="pane">
+        <div class="dashboard-header">
+          <h1>Studied <span id="dash-today-count" class="accent">0</span> cards today.</h1>
+        </div>
+
+        <div class="glass-card heatmap-card">
+          <div id="heatmap-grid" class="heatmap-grid"></div>
+        </div>
+
+        <div class="stat-tiles">
+          <div class="glass-card stat-tile"><div class="stat-label">Streak</div><div id="stat-streak" class="stat-value">0</div></div>
+          <div class="glass-card stat-tile"><div class="stat-label">Avg / day</div><div id="stat-avg" class="stat-value">0</div></div>
+          <div class="glass-card stat-tile"><div class="stat-label">Best day</div><div id="stat-best" class="stat-value">0</div></div>
+          <div class="glass-card stat-tile"><div class="stat-label">Total reviews</div><div id="stat-total" class="stat-value">0</div></div>
+        </div>
+
+        <div class="glass-card deck-library">
+          <div class="deck-library-header">
+            <span>Deck Library</span>
+            <span class="deck-library-col">Due</span>
+            <span class="deck-library-col">New</span>
+          </div>
+          <div id="deck-library-rows"></div>
+        </div>
+      </div>
+
+      <div id="deck-view" class="pane" hidden>
+        <header class="deck-header">
+          <div>
+            <h1 id="deck-title"></h1>
+            <p id="deck-subtitle" class="muted"></p>
+          </div>
+          <div class="deck-actions">
+            <button id="export-deck-btn" class="text-btn">Copy Deck</button>
+            <button id="rename-deck-btn" class="text-btn">Rename</button>
+            <button id="delete-deck-btn" class="text-btn danger">Delete</button>
+          </div>
+        </header>
+
+        <div class="glass-card study-cta">
+          <button id="study-btn" class="primary-btn">Study Now</button>
+          <span id="study-hint" class="muted"></span>
+          <span id="today-stat" class="muted today-stat"></span>
+        </div>
+
+        <div class="card-list-header">
+          <h2>Cards</h2>
+          <div class="card-list-header-right">
+            <input id="card-search" type="text" placeholder="Search cards…" />
+            <button id="add-card-btn" class="text-btn">+ Add Card</button>
+          </div>
+        </div>
+        <div id="card-list"></div>
+      </div>
+
+      <div id="study-view" class="pane" hidden>
+        <header class="study-header">
+          <button id="exit-study-btn" class="text-btn">← Exit</button>
+          <button id="listen-btn" class="text-btn listen-btn" title="Read this card aloud">🔊 Listen</button>
+          <div id="study-progress" class="muted"></div>
+        </header>
+
+        <div id="study-stage">
+          <div id="flashcard">
+            <div id="flashcard-face" class="flashcard-front"></div>
+          </div>
+        </div>
+
+        <div id="study-controls">
+          <button id="show-answer-btn" class="primary-btn">Show Answer</button>
+          <div id="rating-buttons" hidden>
+            <button class="rate-btn rate-again" data-rating="again">✕ Forgot It</button>
+            <button class="rate-btn rate-good" data-rating="good">✓ Got It</button>
+          </div>
+        </div>
+      </div>
+
+      <div id="study-done" class="pane" hidden>
+        <div class="empty-icon">🎉</div>
+        <h1>All caught up!</h1>
+        <p>No more cards due in this deck right now.</p>
+        <button id="done-back-btn" class="primary-btn">Back to Deck</button>
+      </div>
+    </main>
+  </div>
+
+  <div id="action-bar">
+    <button id="magic-add-btn" class="pill pill-magic"><span class="pill-icon">⚡</span> Magic Add</button>
+    <button id="new-deck-btn" class="pill pill-neutral"><span class="pill-icon">＋</span> New Deck</button>
+    <button id="import-btn" class="pill pill-neutral"><span class="pill-icon">⇪</span> Import (or paste)</button>
+  </div>
+</div>
+
+<input type="file" id="json-file-input" accept="application/json" hidden />
+
+<div id="modal-backdrop" hidden>
+  <div id="modal" role="dialog">
+    <h2 id="modal-title"></h2>
+    <div id="modal-body"></div>
+    <div class="modal-actions">
+      <button id="modal-cancel" class="text-btn">Cancel</button>
+      <button id="modal-confirm" class="primary-btn">Save</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+{{APP_JS}}
+</script>

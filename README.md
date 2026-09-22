@@ -10,11 +10,12 @@ A native-feeling, macOS-styled flashcard app inspired by Anki, built with Electr
 - **Magic Add** — paste a list of `front :: back` (or tab- or `-`-separated) lines and bulk-create cards in one go
 - **Import real Anki decks** — pick a `.apkg` file (Anki's export format) and its notes are parsed and imported as cards
 - **Paste to import** — paste a previously-exported MacAnki JSON deck anywhere outside a text field to import it
-- **Study mode** — Anki-style spaced repetition (SM-2 style scheduling) with Again / Hard / Good / Easy ratings
+- **Study mode** — Anki-style spaced repetition (SM-2 style scheduling) with a simple Forgot It / Got It rating
+- **Read-aloud** — a Listen button speaks each card using the best available system voice (dyslexia-friendly)
 - **Native macOS menu** — File/Edit/Study menu with real keyboard shortcuts (`⌘N` new deck, `⌘⇧N` new card, `⌘I` import, `⌘E` export, `⌘F` search, `⌘↩` study now) and working Cut/Copy/Paste in text fields
 - **Delete confirmations** — native alerts before deleting a deck or card
 - **Search** — filter the open deck's cards by front/back text
-- **Keyboard shortcuts** — `Space` to reveal answer, `1`–`4` to rate the card during study
+- **Keyboard shortcuts** — `Space` to reveal answer, `1`/`2` or `←`/`→` to rate the card during study
 - **Local persistence** — your decks, cards, and review history are saved to a JSON file in the app's user data directory, no account or internet connection needed
 
 ## Getting started
@@ -61,4 +62,23 @@ renderer/
   styles.css        Dark glass UI over a wallpaper background
   app.js            UI logic wired to window.api (via preload)
   assets/wallpaper.jpg   Background image
+web/                Standalone browser build (no Electron, no iPad required — but works there)
 ```
+
+## Web / iPad version
+
+No Mac (or any desktop) required — `web/` is the same app rebuilt as a single self-contained
+HTML file that runs entirely in the browser, no server needed:
+
+```bash
+node web/build.js   # writes web/dist/macanki-web.html
+```
+
+It keeps the same dark, wallpaper-backed design (with decorative traffic-light dots standing
+in for the real macOS ones) and every feature except real `.apkg` import, which needs Node's
+filesystem and isn't something a browser sandbox can safely do — JSON import/export still
+works (export copies the deck's JSON to your clipboard; paste it back in anywhere, or use a
+`.json` file, to import). Data is saved with `localStorage`, entirely on-device.
+
+Open the built HTML file in Safari and use Share → **Add to Home Screen** to get an app icon
+that launches full-screen, no browser chrome — this is how it's meant to be used on an iPad.
