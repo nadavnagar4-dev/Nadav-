@@ -1,6 +1,7 @@
 (() => {
   const state = {
     decks: [],
+    stats: null,
     selectedDeckId: null,
     currentCards: [],
     studyQueue: [],
@@ -12,7 +13,15 @@
 
   const el = {
     deckList: document.getElementById('deck-list'),
-    emptyState: document.getElementById('empty-state'),
+    homeBtn: document.getElementById('home-btn'),
+    dashboard: document.getElementById('dashboard'),
+    dashTodayCount: document.getElementById('dash-today-count'),
+    heatmapGrid: document.getElementById('heatmap-grid'),
+    statStreak: document.getElementById('stat-streak'),
+    statAvg: document.getElementById('stat-avg'),
+    statBest: document.getElementById('stat-best'),
+    statTotal: document.getElementById('stat-total'),
+    deckLibraryRows: document.getElementById('deck-library-rows'),
     deckView: document.getElementById('deck-view'),
     studyView: document.getElementById('study-view'),
     studyDone: document.getElementById('study-done'),
@@ -35,7 +44,7 @@
   };
 
   function panes() {
-    return [el.emptyState, el.deckView, el.studyView, el.studyDone];
+    return [el.dashboard, el.deckView, el.studyView, el.studyDone];
   }
 
   function showPane(pane) {
@@ -45,6 +54,7 @@
   async function refresh() {
     const data = await window.api.getAll();
     state.decks = data.decks;
+    state.stats = data.stats;
 
     if (!hasInitialized) {
       hasInitialized = true;
@@ -61,11 +71,21 @@
     if (state.selectedDeckId) {
       await renderDeckView();
     } else {
-      showPane(el.emptyState);
+      renderDashboard();
+      showPane(el.dashboard);
     }
   }
 
+  function goHome() {
+    state.selectedDeckId = null;
+    window.api.setLastSelectedDeck(null);
+    renderDeckList();
+    renderDashboard();
+    showPane(el.dashboard);
+  }
+
   function renderDeckList() {
+    el.homeBtn.classList.toggle('selected', !state.selectedDeckId);
     el.deckList.innerHTML = '';
     for (const deck of state.decks) {
       const item = document.createElement('div');
@@ -76,6 +96,42 @@
       item.innerHTML = `<span class="deck-name">${escapeHtml(deck.name)}</span><div class="deck-badges">${badges.join('')}</div>`;
       item.addEventListener('click', () => selectDeck(deck.id));
       el.deckList.appendChild(item);
+    }
+  }
+
+  function renderDashboard() {
+    const stats = state.stats || { cells: [], streak: 0, avgPerDay: 0, bestDay: 0, totalReviews: 0, todayCount: 0 };
+    el.dashTodayCount.textContent = stats.todayCount;
+    el.statStreak.textContent = stats.streak;
+    el.statAvg.textContent = stats.avgPerDay;
+    el.statBest.textContent = stats.bestDay;
+    el.statTotal.textContent = stats.totalReviews;
+
+    el.heatmapGrid.innerHTML = '';
+    for (const cell of stats.cells) {
+      const div = document.createElement('div');
+      div.className = 'heatmap-cell';
+      const level = cell.count === 0 ? 0 : cell.count < 5 ? 1 : cell.count < 15 ? 2 : cell.count < 30 ? 3 : 4;
+      div.dataset.level = String(level);
+      div.title = `${cell.date}: ${cell.count} review${cell.count === 1 ? '' : 's'}`;
+      el.heatmapGrid.appendChild(div);
+    }
+
+    el.deckLibraryRows.innerHTML = '';
+    if (state.decks.length === 0) {
+      el.deckLibraryRows.innerHTML = '<div class="deck-library-empty">No decks yet — use New Deck below to create your first one.</div>';
+      return;
+    }
+    for (const deck of state.decks) {
+      const row = document.createElement('div');
+      row.className = 'deck-library-row';
+      row.innerHTML = `
+        <span class="deck-library-name"><span class="deck-dot"></span>${escapeHtml(deck.name)}</span>
+        <span class="deck-library-col">${deck.dueReviewCount > 0 ? `<span class="deck-badge badge-due">${deck.dueReviewCount}</span>` : ''}</span>
+        <span class="deck-library-col">${deck.newCount > 0 ? `<span class="deck-badge badge-new">${deck.newCount}</span>` : ''}</span>
+      `;
+      row.addEventListener('click', () => selectDeck(deck.id));
+      el.deckLibraryRows.appendChild(row);
     }
   }
 
@@ -90,7 +146,8 @@
   async function renderDeckView() {
     const deck = state.decks.find((d) => d.id === state.selectedDeckId);
     if (!deck) {
-      showPane(el.emptyState);
+      renderDashboard();
+      showPane(el.dashboard);
       return;
     }
     showPane(el.deckView);
@@ -212,6 +269,66 @@
     bindModal(onConfirm);
   }
 
+  // --- Magic Add modal: paste many lines, split each into a front/back pair ---
+  function parseMagicLines(text) {
+    const pairs = [];
+    for (const rawLine of text.split('\n')) {
+      const line = rawLine.trim();
+      if (!line) continue;
+      let front = null;
+      let back = null;
+      if (line.includes('\t')) {
+        [front, back] = line.split('\t');
+      } else if (line.includes('::')) {
+        [front, back] = line.split('::');
+      } else if (line.includes(' - ')) {
+        const idx = line.indexOf(' - ');
+        front = line.slice(0, idx);
+        back = line.slice(idx + 3);
+      }
+      if (front != null && back != null) {
+        front = front.trim();
+        back = back.trim();
+        if (front && back) pairs.push({ front, back });
+      }
+    }
+    return pairs;
+  }
+
+  function openMagicAddModal() {
+    const existingDeck = state.decks.find((d) => d.id === state.selectedDeckId);
+    el.modalTitle.textContent = 'Magic Add';
+    el.modalBody.innerHTML = `
+      ${existingDeck
+        ? `<label>Adding to</label><p class="hint">${escapeHtml(existingDeck.name)}</p>`
+        : `<label for="magic-deck-name">New deck name</label><input id="magic-deck-name" type="text" value="Quick Add" />`}
+      <label for="magic-textarea">One card per line</label>
+      <p class="hint">Separate front and back with a Tab, "::", or " - ". Paste straight from a spreadsheet or type your own list.</p>
+      <textarea id="magic-textarea" class="magic-textarea" placeholder="perro :: dog&#10;gato :: cat"></textarea>
+    `;
+    el.modalBackdrop.hidden = false;
+    document.getElementById('magic-textarea').focus();
+
+    const onConfirm = async () => {
+      const text = document.getElementById('magic-textarea').value;
+      const pairs = parseMagicLines(text);
+      if (pairs.length === 0) return;
+
+      let deckId = state.selectedDeckId;
+      if (!deckId) {
+        const nameInput = document.getElementById('magic-deck-name');
+        const deck = await window.api.addDeck((nameInput && nameInput.value.trim()) || 'Quick Add');
+        deckId = deck.id;
+      }
+      await window.api.addCardsBulk(deckId, pairs);
+      state.selectedDeckId = deckId;
+      window.api.setLastSelectedDeck(deckId);
+      closeModal();
+      await refresh();
+    };
+    bindModal(onConfirm);
+  }
+
   let currentConfirmHandler = null;
   function bindModal(onConfirm) {
     currentConfirmHandler = onConfirm;
@@ -298,11 +415,25 @@
 
   async function doImportDeck() {
     const result = await window.api.importDeck();
-    if (result && result.ok) await refresh();
+    if (result && result.ok) {
+      await refresh();
+      await selectDeck(result.deck.id);
+    }
+  }
+
+  async function doImportApkg() {
+    const result = await window.api.importApkg();
+    if (result && result.ok) {
+      await refresh();
+      await selectDeck(result.deck.id);
+    }
   }
 
   // --- Event wiring ---
-  document.getElementById('add-deck-btn').addEventListener('click', doAddDeck);
+  el.homeBtn.addEventListener('click', goHome);
+  document.getElementById('new-deck-btn').addEventListener('click', doAddDeck);
+  document.getElementById('magic-add-btn').addEventListener('click', openMagicAddModal);
+  document.getElementById('add-apkg-btn').addEventListener('click', doImportApkg);
   document.getElementById('rename-deck-btn').addEventListener('click', () => {
     const deck = state.decks.find((d) => d.id === state.selectedDeckId);
     if (deck) openDeckModal(deck);
@@ -341,10 +472,31 @@
     }
   });
 
+  // Paste a previously-exported deck's JSON anywhere outside a text field to import it.
+  document.addEventListener('paste', async (e) => {
+    const tag = document.activeElement && document.activeElement.tagName;
+    if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+    const text = e.clipboardData && e.clipboardData.getData('text/plain');
+    if (!text) return;
+    let parsed;
+    try {
+      parsed = JSON.parse(text);
+    } catch {
+      return;
+    }
+    if (!parsed || !Array.isArray(parsed.cards)) return;
+    const result = await window.api.importDeckFromText(text);
+    if (result && result.ok) {
+      await refresh();
+      await selectDeck(result.deck.id);
+    }
+  });
+
   // --- Native menu wiring ---
   window.api.onMenuNewDeck(doAddDeck);
   window.api.onMenuNewCard(doAddCard);
   window.api.onMenuImportDeck(doImportDeck);
+  window.api.onMenuImportApkg(doImportApkg);
   window.api.onMenuExportDeck(doExportDeck);
   window.api.onMenuFocusSearch(() => {
     if (!el.deckView.hidden) el.cardSearch.focus();

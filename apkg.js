@@ -1,0 +1,70 @@
+const fs = require('fs');
+const path = require('path');
+const AdmZip = require('adm-zip');
+const initSqlJs = require('sql.js');
+
+function stripHtml(str) {
+  return String(str)
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/?div[^>]*>/gi, '\n')
+    .replace(/\{\{c\d+::(.*?)(::.*?)?\}\}/g, '$1')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .trim();
+}
+
+// Parses a .apkg (Anki package) file and returns { name, cards: [{front, back}] }.
+// Supports the common "Basic" / "Basic (and reversed card)" style note types by
+// taking the first two fields of each note as front/back; media and scheduling
+// history from the source deck are intentionally not imported.
+async function parseApkg(filePath) {
+  const zip = new AdmZip(filePath);
+  const entries = zip.getEntries();
+
+  const dbEntry =
+    entries.find((e) => e.entryName === 'collection.anki21') ||
+    entries.find((e) => e.entryName === 'collection.anki21b') ||
+    entries.find((e) => e.entryName === 'collection.anki2');
+
+  if (!dbEntry) {
+    throw new Error('Not a valid .apkg file: no collection database found inside.');
+  }
+
+  const wasmPath = path.join(path.dirname(require.resolve('sql.js')), '..', 'dist', 'sql-wasm.wasm');
+  const SQL = await initSqlJs({ locateFile: () => wasmPath });
+  const db = new SQL.Database(dbEntry.getData());
+
+  let noteRows;
+  try {
+    noteRows = db.exec('SELECT flds, sfld FROM notes');
+  } catch (err) {
+    db.close();
+    throw new Error(`Could not read notes from this .apkg file: ${err.message}`);
+  }
+  db.close();
+
+  const cards = [];
+  if (noteRows.length > 0) {
+    for (const row of noteRows[0].values) {
+      const flds = row[0];
+      if (typeof flds !== 'string') continue;
+      const fields = flds.split('\x1f');
+      const front = stripHtml(fields[0] || '');
+      const back = stripHtml(fields[1] || '');
+      if (front && back) cards.push({ front, back });
+    }
+  }
+
+  if (cards.length === 0) {
+    throw new Error('No importable cards were found in this .apkg file.');
+  }
+
+  return { name: path.basename(filePath, path.extname(filePath)), cards };
+}
+
+module.exports = { parseApkg };

@@ -18,13 +18,22 @@
     "productName": "MacAnki",
     "mac": {
       "category": "public.app-category.education",
-      "target": ["dmg", "zip"]
+      "target": [
+        "dmg",
+        "zip"
+      ]
     },
     "files": [
       "main.js",
       "preload.js",
       "store.js",
-      "renderer/**/*"
+      "apkg.js",
+      "renderer/**/*",
+      "node_modules/**/*"
     ]
+  },
+  "dependencies": {
+    "adm-zip": "^0.6.1",
+    "sql.js": "^1.14.2"
   }
 }

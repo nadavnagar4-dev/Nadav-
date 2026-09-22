@@ -7,85 +7,136 @@
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
-    <div id="app">
-      <aside id="sidebar">
-        <div id="sidebar-drag"></div>
-        <div class="sidebar-header">
-          <span class="sidebar-title">Decks</span>
-          <button id="add-deck-btn" class="icon-btn" title="New Deck">+</button>
-        </div>
-        <div id="deck-list"></div>
-        <div class="sidebar-footer">
-          <button id="import-btn" class="text-btn">Import…</button>
-        </div>
-      </aside>
+    <div id="wallpaper"></div>
 
-      <main id="content">
-        <div id="empty-state" class="pane">
-          <div class="empty-icon">🗂️</div>
-          <h1>No deck selected</h1>
-          <p>Create a deck on the left to start adding flashcards.</p>
-        </div>
-
-        <div id="deck-view" class="pane" hidden>
-          <header class="deck-header">
-            <div>
-              <h1 id="deck-title"></h1>
-              <p id="deck-subtitle" class="muted"></p>
-            </div>
-            <div class="deck-actions">
-              <button id="export-deck-btn" class="text-btn">Export</button>
-              <button id="rename-deck-btn" class="text-btn">Rename</button>
-              <button id="delete-deck-btn" class="text-btn danger">Delete</button>
-            </div>
-          </header>
-
-          <div class="study-cta">
-            <button id="study-btn" class="primary-btn">Study Now</button>
-            <span id="study-hint" class="muted"></span>
-            <span id="today-stat" class="muted today-stat"></span>
+    <div id="shell">
+      <div id="app">
+        <aside id="sidebar">
+          <div id="sidebar-drag"></div>
+          <button id="home-btn" class="home-nav-item">
+            <span class="home-nav-icon">⌂</span>
+            <span>Dashboard</span>
+          </button>
+          <div class="sidebar-header">
+            <span class="sidebar-title">Decks</span>
           </div>
+          <div id="deck-list"></div>
+        </aside>
 
-          <div class="card-list-header">
-            <h2>Cards</h2>
-            <div class="card-list-header-right">
-              <input id="card-search" type="text" placeholder="Search cards…" />
-              <button id="add-card-btn" class="text-btn">+ Add Card</button>
+        <main id="content">
+          <div id="dashboard" class="pane">
+            <div class="dashboard-header">
+              <h1>Studied <span id="dash-today-count" class="accent">0</span> cards today.</h1>
             </div>
-          </div>
-          <div id="card-list"></div>
-        </div>
 
-        <div id="study-view" class="pane" hidden>
-          <header class="study-header">
-            <button id="exit-study-btn" class="text-btn">← Exit</button>
-            <div id="study-progress" class="muted"></div>
-          </header>
+            <div class="glass-card heatmap-card">
+              <div id="heatmap-grid" class="heatmap-grid"></div>
+            </div>
 
-          <div id="study-stage">
-            <div id="flashcard">
-              <div id="flashcard-face" class="flashcard-front"></div>
+            <div class="stat-tiles">
+              <div class="glass-card stat-tile">
+                <div class="stat-label">Streak</div>
+                <div id="stat-streak" class="stat-value">0</div>
+              </div>
+              <div class="glass-card stat-tile">
+                <div class="stat-label">Avg / day</div>
+                <div id="stat-avg" class="stat-value">0</div>
+              </div>
+              <div class="glass-card stat-tile">
+                <div class="stat-label">Best day</div>
+                <div id="stat-best" class="stat-value">0</div>
+              </div>
+              <div class="glass-card stat-tile">
+                <div class="stat-label">Total reviews</div>
+                <div id="stat-total" class="stat-value">0</div>
+              </div>
+            </div>
+
+            <div class="glass-card deck-library">
+              <div class="deck-library-header">
+                <span>Deck Library</span>
+                <span class="deck-library-col">Due</span>
+                <span class="deck-library-col">New</span>
+              </div>
+              <div id="deck-library-rows"></div>
             </div>
           </div>
 
-          <div id="study-controls">
-            <button id="show-answer-btn" class="primary-btn">Show Answer</button>
-            <div id="rating-buttons" hidden>
-              <button class="rate-btn rate-again" data-rating="again">Again<span>&lt;1m</span></button>
-              <button class="rate-btn rate-hard" data-rating="hard">Hard<span>10m</span></button>
-              <button class="rate-btn rate-good" data-rating="good">Good<span>1d</span></button>
-              <button class="rate-btn rate-easy" data-rating="easy">Easy<span>4d</span></button>
+          <div id="deck-view" class="pane" hidden>
+            <header class="deck-header">
+              <div>
+                <h1 id="deck-title"></h1>
+                <p id="deck-subtitle" class="muted"></p>
+              </div>
+              <div class="deck-actions">
+                <button id="export-deck-btn" class="text-btn">Export</button>
+                <button id="rename-deck-btn" class="text-btn">Rename</button>
+                <button id="delete-deck-btn" class="text-btn danger">Delete</button>
+              </div>
+            </header>
+
+            <div class="glass-card study-cta">
+              <button id="study-btn" class="primary-btn">Study Now</button>
+              <span id="study-hint" class="muted"></span>
+              <span id="today-stat" class="muted today-stat"></span>
+            </div>
+
+            <div class="card-list-header">
+              <h2>Cards</h2>
+              <div class="card-list-header-right">
+                <input id="card-search" type="text" placeholder="Search cards…" />
+                <button id="add-card-btn" class="text-btn">+ Add Card</button>
+              </div>
+            </div>
+            <div id="card-list"></div>
+          </div>
+
+          <div id="study-view" class="pane" hidden>
+            <header class="study-header">
+              <button id="exit-study-btn" class="text-btn">← Exit</button>
+              <div id="study-progress" class="muted"></div>
+            </header>
+
+            <div id="study-stage">
+              <div id="flashcard">
+                <div id="flashcard-face" class="flashcard-front"></div>
+              </div>
+            </div>
+
+            <div id="study-controls">
+              <button id="show-answer-btn" class="primary-btn">Show Answer</button>
+              <div id="rating-buttons" hidden>
+                <button class="rate-btn rate-again" data-rating="again">Again<span>&lt;1m</span></button>
+                <button class="rate-btn rate-hard" data-rating="hard">Hard<span>10m</span></button>
+                <button class="rate-btn rate-good" data-rating="good">Good<span>1d</span></button>
+                <button class="rate-btn rate-easy" data-rating="easy">Easy<span>4d</span></button>
+              </div>
             </div>
           </div>
-        </div>
 
-        <div id="study-done" class="pane" hidden>
-          <div class="empty-icon">🎉</div>
-          <h1>All caught up!</h1>
-          <p>No more cards due in this deck right now.</p>
-          <button id="done-back-btn" class="primary-btn">Back to Deck</button>
-        </div>
-      </main>
+          <div id="study-done" class="pane" hidden>
+            <div class="empty-icon">🎉</div>
+            <h1>All caught up!</h1>
+            <p>No more cards due in this deck right now.</p>
+            <button id="done-back-btn" class="primary-btn">Back to Deck</button>
+          </div>
+        </main>
+      </div>
+
+      <div id="action-bar">
+        <button id="magic-add-btn" class="pill pill-magic">
+          <span class="pill-icon">⚡</span> Magic Add
+        </button>
+        <button id="add-apkg-btn" class="pill pill-apkg">
+          <span class="pill-icon">🗄</span> Add Anki File (.apkg)
+        </button>
+        <button id="new-deck-btn" class="pill pill-neutral">
+          <span class="pill-icon">＋</span> New Deck
+        </button>
+        <button id="import-btn" class="pill pill-neutral">
+          <span class="pill-icon">⇪</span> Import (or paste ⌘V)
+        </button>
+      </div>
     </div>
 
     <div id="modal-backdrop" hidden>

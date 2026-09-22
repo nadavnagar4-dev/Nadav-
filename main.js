@@ -2,6 +2,7 @@ const { app, BrowserWindow, ipcMain, dialog, Menu } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { Store } = require('./store');
+const { parseApkg } = require('./apkg');
 
 let store;
 let mainWindow;
@@ -37,6 +38,7 @@ function buildMenu() {
         { label: 'New Card…', accelerator: 'CmdOrCtrl+Shift+N', click: () => send('menu:new-card') },
         { type: 'separator' },
         { label: 'Import Deck…', accelerator: 'CmdOrCtrl+I', click: () => send('menu:import-deck') },
+        { label: 'Add Anki File (.apkg)…', click: () => send('menu:import-apkg') },
         { label: 'Export Deck…', accelerator: 'CmdOrCtrl+E', click: () => send('menu:export-deck') },
         { type: 'separator' },
         isMac ? { role: 'close' } : { role: 'quit' },
@@ -72,11 +74,9 @@ function createWindow() {
     height: 720,
     minWidth: 820,
     minHeight: 560,
-    backgroundColor: '#ececec',
+    backgroundColor: '#0b0b0d',
     titleBarStyle: 'hiddenInset',
     trafficLightPosition: { x: 18, y: 20 },
-    vibrancy: 'sidebar',
-    visualEffectState: 'active',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -177,3 +177,37 @@ ipcMain.handle('deck:import', async () => {
     return { ok: false, error: String(err) };
   }
 });
+
+ipcMain.handle('deck:importFromText', (_e, text) => {
+  try {
+    const parsed = JSON.parse(text);
+    if (!parsed || !Array.isArray(parsed.cards)) return { ok: false };
+    const deck = store.importDeck(parsed.name || 'Imported Deck', parsed.cards);
+    return { ok: true, deck };
+  } catch (err) {
+    return { ok: false };
+  }
+});
+
+ipcMain.handle('deck:importApkg', async () => {
+  const { canceled, filePaths } = await dialog.showOpenDialog(mainWindow, {
+    title: 'Add Anki File',
+    filters: [{ name: 'Anki Package', extensions: ['apkg'] }],
+    properties: ['openFile'],
+  });
+  if (canceled || !filePaths[0]) return { ok: false };
+  try {
+    const { name, cards } = await parseApkg(filePaths[0]);
+    const deck = store.importDeck(name, cards);
+    return { ok: true, deck, count: cards.length };
+  } catch (err) {
+    dialog.showMessageBox(mainWindow, {
+      type: 'error',
+      message: "Couldn't import this .apkg file",
+      detail: err.message,
+    });
+    return { ok: false, error: err.message };
+  }
+});
+
+ipcMain.handle('card:addBulk', (_e, deckId, pairs) => store.addCardsBulk(deckId, pairs));

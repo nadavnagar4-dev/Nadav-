@@ -19,6 +19,11 @@ function isToday(ts) {
   return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
 }
 
+function dateKey(ts) {
+  const d = new Date(ts);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
 class Store {
   constructor(filePath) {
     this.filePath = filePath;
@@ -59,7 +64,44 @@ class Store {
         todayCount,
       };
     });
-    return { decks, cards: this.state.cards, settings: this.state.settings };
+    return { decks, cards: this.state.cards, settings: this.state.settings, stats: this.getStats() };
+  }
+
+  // Heatmap cells for the last `days` calendar days, plus streak/average/best-day
+  // stats derived from the review log. All grouping uses local calendar days.
+  getStats(days = 140) {
+    const counts = {};
+    for (const entry of this.state.log) {
+      const key = dateKey(entry.ts);
+      counts[key] = (counts[key] || 0) + 1;
+    }
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const cells = [];
+    for (let i = days - 1; i >= 0; i--) {
+      const d = new Date(today);
+      d.setDate(d.getDate() - i);
+      const key = dateKey(d.getTime());
+      cells.push({ date: key, count: counts[key] || 0 });
+    }
+
+    let streak = 0;
+    for (let i = 0; ; i++) {
+      const d = new Date(today);
+      d.setDate(d.getDate() - i);
+      if ((counts[dateKey(d.getTime())] || 0) > 0) streak++;
+      else break;
+    }
+
+    const activeDays = Object.keys(counts).length;
+    const totalReviews = this.state.log.length;
+    const avgPerDay = activeDays > 0 ? Math.round(totalReviews / activeDays) : 0;
+    const bestDay = Object.values(counts).reduce((m, v) => Math.max(m, v), 0);
+    const todayCount = counts[dateKey(today.getTime())] || 0;
+
+    return { cells, streak, avgPerDay, bestDay, totalReviews, todayCount };
   }
 
   setLastSelectedDeck(id) {
@@ -121,6 +163,30 @@ class Store {
   deleteCard(id) {
     this.state.cards = this.state.cards.filter((c) => c.id !== id);
     this._save();
+  }
+
+  addCardsBulk(deckId, pairs) {
+    const added = [];
+    for (const { front, back } of pairs) {
+      if (!front || !back) continue;
+      const card = {
+        id: makeId(),
+        deckId,
+        front: front.trim(),
+        back: back.trim(),
+        createdAt: Date.now(),
+        due: Date.now(),
+        interval: 0,
+        ease: 2.5,
+        reps: 0,
+        lapses: 0,
+        state: 'new',
+      };
+      this.state.cards.push(card);
+      added.push(card);
+    }
+    this._save();
+    return added;
   }
 
   cardsForDeck(deckId) {
