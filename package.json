@@ -1,0 +1,30 @@
+{
+  "name": "macanki",
+  "productName": "MacAnki",
+  "version": "1.0.0",
+  "description": "A macOS-style flashcard app with spaced repetition, inspired by Anki.",
+  "main": "main.js",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder"
+  },
+  "devDependencies": {
+    "electron": "^32.0.0",
+    "electron-builder": "^25.0.0"
+  },
+  "build": {
+    "appId": "com.nadav.macanki",
+    "productName": "MacAnki",
+    "mac": {
+      "category": "public.app-category.education",
+      "target": ["dmg", "zip"]
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "store.js",
+      "renderer/**/*"
+    ]
+  }
+}

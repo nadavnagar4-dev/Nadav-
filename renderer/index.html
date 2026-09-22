@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline';" />
+    <title>MacAnki</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div id="app">
+      <aside id="sidebar">
+        <div id="sidebar-drag"></div>
+        <div class="sidebar-header">
+          <span class="sidebar-title">Decks</span>
+          <button id="add-deck-btn" class="icon-btn" title="New Deck">+</button>
+        </div>
+        <div id="deck-list"></div>
+        <div class="sidebar-footer">
+          <button id="import-btn" class="text-btn">Import…</button>
+        </div>
+      </aside>
+
+      <main id="content">
+        <div id="empty-state" class="pane">
+          <div class="empty-icon">🗂️</div>
+          <h1>No deck selected</h1>
+          <p>Create a deck on the left to start adding flashcards.</p>
+        </div>
+
+        <div id="deck-view" class="pane" hidden>
+          <header class="deck-header">
+            <div>
+              <h1 id="deck-title"></h1>
+              <p id="deck-subtitle" class="muted"></p>
+            </div>
+            <div class="deck-actions">
+              <button id="export-deck-btn" class="text-btn">Export</button>
+              <button id="rename-deck-btn" class="text-btn">Rename</button>
+              <button id="delete-deck-btn" class="text-btn danger">Delete</button>
+            </div>
+          </header>
+
+          <div class="study-cta">
+            <button id="study-btn" class="primary-btn">Study Now</button>
+            <span id="study-hint" class="muted"></span>
+          </div>
+
+          <div class="card-list-header">
+            <h2>Cards</h2>
+            <button id="add-card-btn" class="text-btn">+ Add Card</button>
+          </div>
+          <div id="card-list"></div>
+        </div>
+
+        <div id="study-view" class="pane" hidden>
+          <header class="study-header">
+            <button id="exit-study-btn" class="text-btn">← Exit</button>
+            <div id="study-progress" class="muted"></div>
+          </header>
+
+          <div id="study-stage">
+            <div id="flashcard">
+              <div id="flashcard-face" class="flashcard-front"></div>
+            </div>
+          </div>
+
+          <div id="study-controls">
+            <button id="show-answer-btn" class="primary-btn">Show Answer</button>
+            <div id="rating-buttons" hidden>
+              <button class="rate-btn rate-again" data-rating="again">Again<span>&lt;1m</span></button>
+              <button class="rate-btn rate-hard" data-rating="hard">Hard<span>10m</span></button>
+              <button class="rate-btn rate-good" data-rating="good">Good<span>1d</span></button>
+              <button class="rate-btn rate-easy" data-rating="easy">Easy<span>4d</span></button>
+            </div>
+          </div>
+        </div>
+
+        <div id="study-done" class="pane" hidden>
+          <div class="empty-icon">🎉</div>
+          <h1>All caught up!</h1>
+          <p>No more cards due in this deck right now.</p>
+          <button id="done-back-btn" class="primary-btn">Back to Deck</button>
+        </div>
+      </main>
+    </div>
+
+    <div id="modal-backdrop" hidden>
+      <div id="modal" role="dialog">
+        <h2 id="modal-title"></h2>
+        <div id="modal-body"></div>
+        <div class="modal-actions">
+          <button id="modal-cancel" class="text-btn">Cancel</button>
+          <button id="modal-confirm" class="primary-btn">Save</button>
+        </div>
+      </div>
+    </div>
+
+    <script src="app.js"></script>
+  </body>
+</html>

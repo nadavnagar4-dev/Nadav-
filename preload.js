@@ -1,0 +1,18 @@
+const { contextBridge, ipcRenderer } = require('electron');
+
+contextBridge.exposeInMainWorld('api', {
+  getAll: () => ipcRenderer.invoke('data:getAll'),
+
+  addDeck: (name) => ipcRenderer.invoke('deck:add', name),
+  renameDeck: (id, name) => ipcRenderer.invoke('deck:rename', id, name),
+  deleteDeck: (id) => ipcRenderer.invoke('deck:delete', id),
+  exportDeck: (id) => ipcRenderer.invoke('deck:export', id),
+  importDeck: () => ipcRenderer.invoke('deck:import'),
+
+  addCard: (deckId, front, back) => ipcRenderer.invoke('card:add', deckId, front, back),
+  updateCard: (id, front, back) => ipcRenderer.invoke('card:update', id, front, back),
+  deleteCard: (id) => ipcRenderer.invoke('card:delete', id),
+  listCardsForDeck: (deckId) => ipcRenderer.invoke('card:listForDeck', deckId),
+  dueCardsForDeck: (deckId) => ipcRenderer.invoke('card:dueForDeck', deckId),
+  rateCard: (id, rating) => ipcRenderer.invoke('card:rate', id, rating),
+});
