@@ -33,6 +33,7 @@
     cardList: document.getElementById('card-list'),
     flashcardFace: document.getElementById('flashcard-face'),
     flashcard: document.getElementById('flashcard'),
+    listenBtn: document.getElementById('listen-btn'),
     studyProgress: document.getElementById('study-progress'),
     showAnswerBtn: document.getElementById('show-answer-btn'),
     ratingButtons: document.getElementById('rating-buttons'),
@@ -77,6 +78,7 @@
   }
 
   function goHome() {
+    stopSpeaking();
     state.selectedDeckId = null;
     window.api.setLastSelectedDeck(null);
     renderDeckList();
@@ -136,6 +138,7 @@
   }
 
   async function selectDeck(id) {
+    stopSpeaking();
     if (id !== state.selectedDeckId) el.cardSearch.value = '';
     state.selectedDeckId = id;
     window.api.setLastSelectedDeck(id);
@@ -188,9 +191,14 @@
         <span class="side front">${escapeHtml(card.front)}</span>
         <span class="side back">${escapeHtml(card.back)}</span>
         <div class="row-actions">
+          <button class="icon-btn listen-card" title="Read aloud">🔊</button>
           <button class="icon-btn edit-card" title="Edit">✎</button>
           <button class="icon-btn delete-card" title="Delete">✕</button>
         </div>`;
+      row.querySelector('.listen-card').addEventListener('click', (e) => {
+        e.stopPropagation();
+        speak(`${card.front}. ${card.back}`);
+      });
       row.querySelector('.edit-card').addEventListener('click', (e) => {
         e.stopPropagation();
         openCardModal(card);
@@ -208,6 +216,40 @@
     const d = document.createElement('div');
     d.textContent = str;
     return d.innerHTML;
+  }
+
+  // --- Read-aloud (dyslexia-friendly) ---
+  let cachedVoices = [];
+  if (window.speechSynthesis) {
+    cachedVoices = window.speechSynthesis.getVoices();
+    window.speechSynthesis.addEventListener('voiceschanged', () => {
+      cachedVoices = window.speechSynthesis.getVoices();
+    });
+  }
+
+  function pickVoice() {
+    return (
+      cachedVoices.find((v) => /en[-_]US/i.test(v.lang) && /female|male/i.test(v.name) === false && v.default) ||
+      cachedVoices.find((v) => /en[-_]US/i.test(v.lang)) ||
+      cachedVoices.find((v) => v.lang && v.lang.toLowerCase().startsWith('en')) ||
+      cachedVoices[0] ||
+      null
+    );
+  }
+
+  function stopSpeaking() {
+    if (window.speechSynthesis) window.speechSynthesis.cancel();
+  }
+
+  function speak(text) {
+    if (!window.speechSynthesis || !text) return;
+    stopSpeaking();
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.rate = 0.92;
+    utterance.pitch = 0.95;
+    const voice = pickVoice();
+    if (voice) utterance.voice = voice;
+    window.speechSynthesis.speak(utterance);
   }
 
   // --- Deck modal ---
@@ -362,6 +404,7 @@
   }
 
   function renderStudyCard() {
+    stopSpeaking();
     const card = state.studyQueue[state.studyIndex];
     if (!card) {
       showPane(el.studyDone);
@@ -386,9 +429,16 @@
     el.ratingButtons.hidden = false;
   }
 
+  function listenToCurrentCard() {
+    const card = state.studyQueue[state.studyIndex];
+    if (!card) return;
+    speak(state.showingAnswer ? `${card.front}. ${card.back}` : card.front);
+  }
+
   async function rateCurrentCard(rating) {
     const card = state.studyQueue[state.studyIndex];
     if (!card) return;
+    stopSpeaking();
     await window.api.rateCard(card.id, rating);
     state.studyIndex += 1;
     if (state.studyIndex >= state.studyQueue.length) {
@@ -450,9 +500,13 @@
   document.getElementById('import-btn').addEventListener('click', doImportDeck);
   document.getElementById('add-card-btn').addEventListener('click', doAddCard);
   document.getElementById('study-btn').addEventListener('click', startStudy);
-  document.getElementById('exit-study-btn').addEventListener('click', refresh);
+  document.getElementById('exit-study-btn').addEventListener('click', () => {
+    stopSpeaking();
+    refresh();
+  });
   document.getElementById('done-back-btn').addEventListener('click', refresh);
   document.getElementById('show-answer-btn').addEventListener('click', revealAnswer);
+  el.listenBtn.addEventListener('click', listenToCurrentCard);
   el.flashcard.addEventListener('click', revealAnswer);
   el.ratingButtons.addEventListener('click', (e) => {
     const btn = e.target.closest('.rate-btn');
@@ -465,9 +519,10 @@
       if (e.code === 'Space') {
         e.preventDefault();
         if (!state.showingAnswer) revealAnswer();
-      } else if (state.showingAnswer && ['1', '2', '3', '4'].includes(e.key)) {
-        const map = { 1: 'again', 2: 'hard', 3: 'good', 4: 'easy' };
-        rateCurrentCard(map[e.key]);
+      } else if (state.showingAnswer && (e.key === '1' || e.key === 'ArrowLeft')) {
+        rateCurrentCard('again');
+      } else if (state.showingAnswer && (e.key === '2' || e.key === 'ArrowRight')) {
+        rateCurrentCard('good');
       }
     }
   });
