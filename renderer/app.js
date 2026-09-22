@@ -227,14 +227,26 @@
     });
   }
 
+  // Prefer natural-sounding voices (macOS "Enhanced"/"Premium" neural voices,
+  // and known good default voices) and actively avoid the old novelty/robotic
+  // system voices (Fred, Zarvox, Bubbles, etc.) that some OSes still ship.
+  const NOVELTY_VOICE_NAMES = /fred|zarvox|trinoids|cellos|bells|bubbles|bahh|boing|deranged|hysterical|pipe organ|whisper|wobble|albert|bad news|good news|junior|kathy|ralph|jester|organ|rocko/i;
+  const NATURAL_VOICE_NAMES = /ava|nathan|samantha|allison|susan|zoe|tom|karen|moira|tessa|daniel|serena|evan|siri/i;
+
+  function scoreVoice(v) {
+    let score = 0;
+    if (/en[-_]US/i.test(v.lang)) score += 3;
+    else if (v.lang && v.lang.toLowerCase().startsWith('en')) score += 2;
+    if (/premium|enhanced|neural/i.test(v.name)) score += 5;
+    if (NATURAL_VOICE_NAMES.test(v.name)) score += 3;
+    if (NOVELTY_VOICE_NAMES.test(v.name)) score -= 10;
+    if (v.default) score += 1;
+    return score;
+  }
+
   function pickVoice() {
-    return (
-      cachedVoices.find((v) => /en[-_]US/i.test(v.lang) && /female|male/i.test(v.name) === false && v.default) ||
-      cachedVoices.find((v) => /en[-_]US/i.test(v.lang)) ||
-      cachedVoices.find((v) => v.lang && v.lang.toLowerCase().startsWith('en')) ||
-      cachedVoices[0] ||
-      null
-    );
+    if (cachedVoices.length === 0) return null;
+    return cachedVoices.slice().sort((a, b) => scoreVoice(b) - scoreVoice(a))[0];
   }
 
   function stopSpeaking() {
@@ -245,8 +257,8 @@
     if (!window.speechSynthesis || !text) return;
     stopSpeaking();
     const utterance = new SpeechSynthesisUtterance(text);
-    utterance.rate = 0.92;
-    utterance.pitch = 0.95;
+    utterance.rate = 0.95;
+    utterance.pitch = 1;
     const voice = pickVoice();
     if (voice) utterance.voice = voice;
     window.speechSynthesis.speak(utterance);
