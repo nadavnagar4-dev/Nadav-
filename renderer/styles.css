@@ -148,20 +148,31 @@ body {
   flex: 1;
 }
 
+.deck-badges {
+  display: flex;
+  gap: 4px;
+}
+
 .deck-badge {
   font-size: 11px;
   font-weight: 600;
-  color: var(--text-muted);
-  background: var(--hover-bg);
   border-radius: 8px;
   padding: 1px 6px;
   min-width: 16px;
   text-align: center;
+  color: white;
+}
+
+.deck-badge.badge-new {
+  background: var(--easy);
+}
+
+.deck-badge.badge-due {
+  background: var(--again);
 }
 
 .deck-item.selected .deck-badge {
-  background: rgba(0, 122, 255, 0.18);
-  color: var(--selected-text);
+  filter: brightness(1.15);
 }
 
 .sidebar-footer {
@@ -270,11 +281,32 @@ h2 {
   margin-bottom: 24px;
 }
 
+.today-stat {
+  margin-left: auto;
+}
+
 .card-list-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
   margin-bottom: 10px;
+}
+
+.card-list-header-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+#card-search {
+  font-family: inherit;
+  font-size: 12px;
+  border: 1px solid var(--border);
+  background: var(--card-bg);
+  color: var(--text);
+  border-radius: 7px;
+  padding: 5px 10px;
+  width: 180px;
 }
 
 #card-list {

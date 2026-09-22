@@ -10,7 +10,13 @@ function makeId() {
 }
 
 function emptyState() {
-  return { decks: [], cards: [] };
+  return { decks: [], cards: [], log: [], settings: { lastSelectedDeckId: null } };
+}
+
+function isToday(ts) {
+  const a = new Date(ts);
+  const b = new Date();
+  return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
 }
 
 class Store {
@@ -24,6 +30,8 @@ class Store {
       const raw = fs.readFileSync(this.filePath, 'utf8');
       const parsed = JSON.parse(raw);
       if (!parsed.decks || !parsed.cards) return emptyState();
+      if (!parsed.log) parsed.log = [];
+      if (!parsed.settings) parsed.settings = { lastSelectedDeckId: null };
       return parsed;
     } catch (err) {
       return emptyState();
@@ -39,11 +47,24 @@ class Store {
     const now = Date.now();
     const decks = this.state.decks.map((d) => {
       const deckCards = this.state.cards.filter((c) => c.deckId === d.id);
-      const due = deckCards.filter((c) => c.due <= now).length;
       const newCount = deckCards.filter((c) => c.state === 'new').length;
-      return { ...d, cardCount: deckCards.length, dueCount: due, newCount };
+      const dueReviewCount = deckCards.filter((c) => c.state !== 'new' && c.due <= now).length;
+      const todayCount = this.state.log.filter((e) => e.deckId === d.id && isToday(e.ts)).length;
+      return {
+        ...d,
+        cardCount: deckCards.length,
+        newCount,
+        dueReviewCount,
+        dueCount: newCount + dueReviewCount,
+        todayCount,
+      };
     });
-    return { decks, cards: this.state.cards };
+    return { decks, cards: this.state.cards, settings: this.state.settings };
+  }
+
+  setLastSelectedDeck(id) {
+    this.state.settings.lastSelectedDeckId = id;
+    this._save();
   }
 
   addDeck(name) {
@@ -64,6 +85,8 @@ class Store {
   deleteDeck(id) {
     this.state.decks = this.state.decks.filter((d) => d.id !== id);
     this.state.cards = this.state.cards.filter((c) => c.deckId !== id);
+    this.state.log = this.state.log.filter((e) => e.deckId !== id);
+    if (this.state.settings.lastSelectedDeckId === id) this.state.settings.lastSelectedDeckId = null;
     this._save();
   }
 
@@ -154,6 +177,7 @@ class Store {
     }
 
     card.reps += 1;
+    this.state.log.push({ cardId: card.id, deckId: card.deckId, rating, ts: Date.now() });
     this._save();
     return card;
   }

@@ -2,10 +2,13 @@
   const state = {
     decks: [],
     selectedDeckId: null,
+    currentCards: [],
     studyQueue: [],
     studyIndex: 0,
     showingAnswer: false,
   };
+
+  let hasInitialized = false;
 
   const el = {
     deckList: document.getElementById('deck-list'),
@@ -16,6 +19,8 @@
     deckTitle: document.getElementById('deck-title'),
     deckSubtitle: document.getElementById('deck-subtitle'),
     studyHint: document.getElementById('study-hint'),
+    todayStat: document.getElementById('today-stat'),
+    cardSearch: document.getElementById('card-search'),
     cardList: document.getElementById('card-list'),
     flashcardFace: document.getElementById('flashcard-face'),
     flashcard: document.getElementById('flashcard'),
@@ -40,6 +45,15 @@
   async function refresh() {
     const data = await window.api.getAll();
     state.decks = data.decks;
+
+    if (!hasInitialized) {
+      hasInitialized = true;
+      const lastId = data.settings && data.settings.lastSelectedDeckId;
+      if (!state.selectedDeckId && lastId && state.decks.find((d) => d.id === lastId)) {
+        state.selectedDeckId = lastId;
+      }
+    }
+
     renderDeckList();
     if (state.selectedDeckId && !state.decks.find((d) => d.id === state.selectedDeckId)) {
       state.selectedDeckId = null;
@@ -56,15 +70,19 @@
     for (const deck of state.decks) {
       const item = document.createElement('div');
       item.className = 'deck-item' + (deck.id === state.selectedDeckId ? ' selected' : '');
-      item.innerHTML = `<span class="deck-name">${escapeHtml(deck.name)}</span>` +
-        (deck.dueCount > 0 ? `<span class="deck-badge">${deck.dueCount}</span>` : '');
+      const badges = [];
+      if (deck.newCount > 0) badges.push(`<span class="deck-badge badge-new">${deck.newCount}</span>`);
+      if (deck.dueReviewCount > 0) badges.push(`<span class="deck-badge badge-due">${deck.dueReviewCount}</span>`);
+      item.innerHTML = `<span class="deck-name">${escapeHtml(deck.name)}</span><div class="deck-badges">${badges.join('')}</div>`;
       item.addEventListener('click', () => selectDeck(deck.id));
       el.deckList.appendChild(item);
     }
   }
 
   async function selectDeck(id) {
+    if (id !== state.selectedDeckId) el.cardSearch.value = '';
     state.selectedDeckId = id;
+    window.api.setLastSelectedDeck(id);
     renderDeckList();
     await renderDeckView();
   }
@@ -81,15 +99,29 @@
     el.studyHint.textContent = deck.dueCount > 0
       ? `${deck.dueCount} card${deck.dueCount === 1 ? '' : 's'} due`
       : 'Nothing due right now';
+    el.todayStat.textContent = `Studied today: ${deck.todayCount}`;
 
     const studyBtn = document.getElementById('study-btn');
     studyBtn.disabled = deck.dueCount === 0;
     studyBtn.style.opacity = deck.dueCount === 0 ? 0.4 : 1;
 
-    const cards = await window.api.listCardsForDeck(deck.id);
+    state.currentCards = await window.api.listCardsForDeck(deck.id);
+    renderCardList();
+  }
+
+  function renderCardList() {
+    const query = el.cardSearch.value.trim().toLowerCase();
+    const cards = query
+      ? state.currentCards.filter((c) => c.front.toLowerCase().includes(query) || c.back.toLowerCase().includes(query))
+      : state.currentCards;
+
     el.cardList.innerHTML = '';
-    if (cards.length === 0) {
+    if (state.currentCards.length === 0) {
       el.cardList.innerHTML = '<div class="no-cards">No cards yet. Add your first one above.</div>';
+      return;
+    }
+    if (cards.length === 0) {
+      el.cardList.innerHTML = '<div class="no-cards">No cards match your search.</div>';
       return;
     }
     for (const card of cards) {
@@ -108,8 +140,8 @@
       });
       row.querySelector('.delete-card').addEventListener('click', async (e) => {
         e.stopPropagation();
-        await window.api.deleteCard(card.id);
-        await refresh();
+        const result = await window.api.deleteCard(card.id);
+        if (result && result.ok) await refresh();
       });
       el.cardList.appendChild(row);
     }
@@ -141,6 +173,7 @@
       } else {
         const deck = await window.api.addDeck(name);
         state.selectedDeckId = deck.id;
+        window.api.setLastSelectedDeck(deck.id);
       }
       closeModal();
       await refresh();
@@ -198,6 +231,7 @@
 
   // --- Study mode ---
   async function startStudy() {
+    if (!state.selectedDeckId) return;
     const cards = await window.api.dueCardsForDeck(state.selectedDeckId);
     if (cards.length === 0) {
       showPane(el.studyDone);
@@ -248,26 +282,42 @@
     }
   }
 
+  // --- Actions (shared between buttons and native menu) ---
+  function doAddDeck() {
+    openDeckModal(null);
+  }
+
+  function doAddCard() {
+    if (!state.selectedDeckId) return;
+    openCardModal(null);
+  }
+
+  async function doExportDeck() {
+    if (state.selectedDeckId) await window.api.exportDeck(state.selectedDeckId);
+  }
+
+  async function doImportDeck() {
+    const result = await window.api.importDeck();
+    if (result && result.ok) await refresh();
+  }
+
   // --- Event wiring ---
-  document.getElementById('add-deck-btn').addEventListener('click', () => openDeckModal(null));
+  document.getElementById('add-deck-btn').addEventListener('click', doAddDeck);
   document.getElementById('rename-deck-btn').addEventListener('click', () => {
     const deck = state.decks.find((d) => d.id === state.selectedDeckId);
     if (deck) openDeckModal(deck);
   });
   document.getElementById('delete-deck-btn').addEventListener('click', async () => {
     if (!state.selectedDeckId) return;
-    await window.api.deleteDeck(state.selectedDeckId);
-    state.selectedDeckId = null;
-    await refresh();
+    const result = await window.api.deleteDeck(state.selectedDeckId);
+    if (result && result.ok) {
+      state.selectedDeckId = null;
+      await refresh();
+    }
   });
-  document.getElementById('export-deck-btn').addEventListener('click', async () => {
-    if (state.selectedDeckId) await window.api.exportDeck(state.selectedDeckId);
-  });
-  document.getElementById('import-btn').addEventListener('click', async () => {
-    const result = await window.api.importDeck();
-    if (result && result.ok) await refresh();
-  });
-  document.getElementById('add-card-btn').addEventListener('click', () => openCardModal(null));
+  document.getElementById('export-deck-btn').addEventListener('click', doExportDeck);
+  document.getElementById('import-btn').addEventListener('click', doImportDeck);
+  document.getElementById('add-card-btn').addEventListener('click', doAddCard);
   document.getElementById('study-btn').addEventListener('click', startStudy);
   document.getElementById('exit-study-btn').addEventListener('click', refresh);
   document.getElementById('done-back-btn').addEventListener('click', refresh);
@@ -277,6 +327,7 @@
     const btn = e.target.closest('.rate-btn');
     if (btn) rateCurrentCard(btn.dataset.rating);
   });
+  el.cardSearch.addEventListener('input', renderCardList);
 
   document.addEventListener('keydown', (e) => {
     if (!el.studyView.hidden) {
@@ -288,6 +339,18 @@
         rateCurrentCard(map[e.key]);
       }
     }
+  });
+
+  // --- Native menu wiring ---
+  window.api.onMenuNewDeck(doAddDeck);
+  window.api.onMenuNewCard(doAddCard);
+  window.api.onMenuImportDeck(doImportDeck);
+  window.api.onMenuExportDeck(doExportDeck);
+  window.api.onMenuFocusSearch(() => {
+    if (!el.deckView.hidden) el.cardSearch.focus();
+  });
+  window.api.onMenuStudyNow(() => {
+    if (!el.deckView.hidden) startStudy();
   });
 
   refresh();
