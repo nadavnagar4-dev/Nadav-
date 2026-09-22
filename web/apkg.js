@@ -166,7 +166,22 @@
       throw new Error("Not a valid .apkg file: no collection database found inside.");
     }
 
-    const dbBytes = await readEntry(blob, found[presentName], presentName);
+    let dbBytes = await readEntry(blob, found[presentName], presentName);
+
+    // Anki 2.1.50+ stores the newer-schema collection as "collection.anki21b",
+    // whose content is Zstandard-compressed on top of being a zip entry —
+    // one more decompression pass is needed before it's a real SQLite file.
+    if (presentName === "collection.anki21b") {
+      if (!global.fzstd) {
+        throw new Error("This .apkg uses Anki's newer compressed format, but the Zstandard decoder didn't load.");
+      }
+      try {
+        dbBytes = global.fzstd.decompress(dbBytes);
+      } catch (err) {
+        throw new Error(`Couldn't decompress this .apkg's collection data: ${err.message}`);
+      }
+    }
+
     const db = new SQL.Database(dbBytes);
 
     let noteRows;

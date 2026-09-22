@@ -2,6 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const AdmZip = require('adm-zip');
 const initSqlJs = require('sql.js');
+const fzstd = require('fzstd');
 
 function stripHtml(str) {
   return String(str)
@@ -35,9 +36,22 @@ async function parseApkg(filePath) {
     throw new Error('Not a valid .apkg file: no collection database found inside.');
   }
 
+  let dbBytes = dbEntry.getData();
+
+  // Anki 2.1.50+ stores the newer-schema collection as "collection.anki21b",
+  // whose content is Zstandard-compressed on top of being a zip entry — one
+  // more decompression pass is needed before it's a real SQLite file.
+  if (dbEntry.entryName === 'collection.anki21b') {
+    try {
+      dbBytes = Buffer.from(fzstd.decompress(dbBytes));
+    } catch (err) {
+      throw new Error(`Couldn't decompress this .apkg's collection data: ${err.message}`);
+    }
+  }
+
   const wasmPath = path.join(path.dirname(require.resolve('sql.js')), '..', 'dist', 'sql-wasm.wasm');
   const SQL = await initSqlJs({ locateFile: () => wasmPath });
-  const db = new SQL.Database(dbEntry.getData());
+  const db = new SQL.Database(dbBytes);
 
   let noteRows;
   try {

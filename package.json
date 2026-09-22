@@ -36,6 +36,7 @@
   },
   "dependencies": {
     "adm-zip": "^0.6.1",
+    "fzstd": "^0.1.1",
     "sql.js": "^1.14.2"
   }
 }

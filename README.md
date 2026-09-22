@@ -104,10 +104,15 @@ Unlike the desktop app's importer (which needs Node's filesystem), this one runs
 the browser — and it's built to handle a large `.apkg` without loading the whole thing into
 memory. Most of a package's size is usually bundled media (images/audio), which this never
 touches: it reads the ZIP's central directory (a small index, even for a huge archive) to
-find exactly where `collection.anki2`/`.anki21` lives, then reads and decompresses only that
-one entry via `Blob.slice()`. Peak memory stays proportional to the card data itself, not the
+find exactly where the collection database lives, then reads and decompresses only that one
+entry via `Blob.slice()`. Peak memory stays proportional to the card data itself, not the
 package — verified with a fixture where a 30MB dummy media entry sits right next to the real
 collection, and the importer touches under 70KB total to extract it. Zip64 (needed for any
-archive over ~4GB) is supported. What doesn't carry over: media files themselves (no
-image/audio rendering) and the original deck's scheduling history — cards come in fresh as
-"new", same as the desktop importer.
+archive over ~4GB) is supported.
+
+Anki 2.1.50+ stores the collection as `collection.anki21b`, whose content is
+Zstandard-compressed on top of being a zip entry — both importers (browser and desktop)
+decompress that extra layer via `fzstd` before handing the bytes to sql.js; the older
+uncompressed `collection.anki21`/`.anki2` formats work too. What doesn't carry over: media
+files themselves (no image/audio rendering) and the original deck's scheduling history —
+cards come in fresh as "new".
