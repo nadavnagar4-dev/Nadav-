@@ -143,7 +143,6 @@
     return String(str)
       .replace(/<br\s*\/?>/gi, "\n")
       .replace(/<\/?div[^>]*>/gi, "\n")
-      .replace(/\{\{c\d+::(.*?)(::.*?)?\}\}/g, "$1")
       .replace(/<[^>]+>/g, "")
       .replace(/&nbsp;/g, " ")
       .replace(/&amp;/g, "&")
@@ -152,6 +151,29 @@
       .replace(/&quot;/g, '"')
       .replace(/&#39;/g, "'")
       .trim();
+  }
+
+  const CLOZE_PATTERN = /\{\{c(\d+)::(.*?)(?:::(.*?))?\}\}/g;
+
+  function clozeNumbersIn(text) {
+    const nums = new Set();
+    let m;
+    CLOZE_PATTERN.lastIndex = 0;
+    while ((m = CLOZE_PATTERN.exec(text))) nums.add(Number(m[1]));
+    return [...nums].sort((a, b) => a - b);
+  }
+
+  // Renders a cloze note's text for one specific cloze number: that number's
+  // deletion becomes a blank (or its answer, when `reveal` is true) — every
+  // OTHER cloze number in the same text is always shown filled in, matching
+  // how Anki's own cloze template behaves.
+  function renderCloze(text, activeNum, reveal) {
+    return text.replace(CLOZE_PATTERN, (_match, numStr, answer, hint) => {
+      if (Number(numStr) === activeNum) {
+        return reveal ? answer : hint ? `[${hint}]` : "[...]";
+      }
+      return answer;
+    });
   }
 
   // Parses a .apkg File/Blob and returns { name, cards: [{front, back}] }.
@@ -197,9 +219,25 @@
         const flds = row[0];
         if (typeof flds !== "string") continue;
         const fields = flds.split("\x1f");
-        const front = stripHtml(fields[0] || "");
-        const back = stripHtml(fields[1] || "");
-        if (front && back) cards.push({ front, back });
+        const field0 = fields[0] || "";
+        const extra = fields[1] || "";
+        const clozeNums = clozeNumbersIn(field0);
+
+        if (clozeNums.length > 0) {
+          // Cloze note: Anki generates one card per {{cN::...}} number, each
+          // hiding only that number (others in the same text stay revealed).
+          for (const num of clozeNums) {
+            const front = stripHtml(renderCloze(field0, num, false));
+            let back = stripHtml(renderCloze(field0, num, true));
+            const extraText = stripHtml(extra);
+            if (extraText) back += `\n\n${extraText}`;
+            if (front && back) cards.push({ front, back });
+          }
+        } else {
+          const front = stripHtml(field0);
+          const back = stripHtml(extra);
+          if (front && back) cards.push({ front, back });
+        }
       }
     }
 

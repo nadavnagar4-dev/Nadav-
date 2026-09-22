@@ -646,31 +646,34 @@
   }
 
   // ---------- Read-aloud (dyslexia-friendly) ----------
-  let cachedVoices = [];
-  if (window.speechSynthesis) {
-    cachedVoices = window.speechSynthesis.getVoices();
-    window.speechSynthesis.addEventListener('voiceschanged', () => {
-      cachedVoices = window.speechSynthesis.getVoices();
-    });
-  }
-
   const NOVELTY_VOICE_NAMES = /fred|zarvox|trinoids|cellos|bells|bubbles|bahh|boing|deranged|hysterical|pipe organ|whisper|wobble|albert|bad news|good news|junior|kathy|ralph|jester|organ|rocko/i;
   const NATURAL_VOICE_NAMES = /ava|nathan|samantha|allison|susan|zoe|tom|karen|moira|tessa|daniel|serena|evan|siri/i;
+  // Quality tier is often encoded in voiceURI (e.g. "com.apple.voice.premium.en-US.Ava"),
+  // not necessarily in the human-readable name — check both.
+  const QUALITY_MARKERS = /premium|enhanced|neural|siri/i;
 
   function scoreVoice(v) {
     let score = 0;
     if (/en[-_]US/i.test(v.lang)) score += 3;
     else if (v.lang && v.lang.toLowerCase().startsWith('en')) score += 2;
-    if (/premium|enhanced|neural/i.test(v.name)) score += 5;
+    if (QUALITY_MARKERS.test(v.name) || QUALITY_MARKERS.test(v.voiceURI || '')) score += 5;
     if (NATURAL_VOICE_NAMES.test(v.name)) score += 3;
     if (NOVELTY_VOICE_NAMES.test(v.name)) score -= 10;
+    if (/compact/i.test(v.voiceURI || '')) score -= 2;
     if (v.default) score += 1;
     return score;
   }
 
+  // Queried fresh every time rather than cached at page load: getVoices()
+  // very commonly returns an empty list on the very first call (especially
+  // on Safari), and its 'voiceschanged' event is not reliable everywhere —
+  // caching that first empty result would silently disable voice selection
+  // for the rest of the session.
   function pickVoice() {
-    if (cachedVoices.length === 0) return null;
-    return cachedVoices.slice().sort((a, b) => scoreVoice(b) - scoreVoice(a))[0];
+    if (!window.speechSynthesis) return null;
+    const voices = window.speechSynthesis.getVoices();
+    if (!voices || voices.length === 0) return null;
+    return voices.slice().sort((a, b) => scoreVoice(b) - scoreVoice(a))[0];
   }
 
   function stopSpeaking() {
