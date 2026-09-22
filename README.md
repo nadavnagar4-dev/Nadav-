@@ -63,6 +63,10 @@ renderer/
   app.js            UI logic wired to window.api (via preload)
   assets/wallpaper.jpg   Background image
 web/                Standalone browser build (no Electron, no iPad required — but works there)
+  template.html     Page shell + styles (placeholders filled in by build.js)
+  app.js            Store (localStorage-backed) + UI logic, no IPC
+  apkg.js           Memory-safe browser .apkg reader (targeted ZIP read + sql.js)
+  build.js          Inlines wallpaper/icon/fflate/sql.js/apkg.js into one HTML file
 ```
 
 ## Web / iPad version
@@ -75,10 +79,35 @@ node web/build.js   # writes web/dist/macanki-web.html
 ```
 
 It keeps the same dark, wallpaper-backed design (with decorative traffic-light dots standing
-in for the real macOS ones) and every feature except real `.apkg` import, which needs Node's
-filesystem and isn't something a browser sandbox can safely do — JSON import/export still
-works (export copies the deck's JSON to your clipboard; paste it back in anywhere, or use a
-`.json` file, to import). Data is saved with `localStorage`, entirely on-device.
+in for the real macOS ones) and nearly every feature, including a **real** `.apkg` importer —
+see below. Deck export copies JSON to your clipboard rather than downloading a file (paste it
+back in anywhere, or pick a `.json` file, to import) since a plain file-download link doesn't
+work everywhere this page might be opened. Data is saved with `localStorage`, entirely
+on-device, plus lightweight auto-saved drafts so switching apps or an accidental refresh
+mid-edit doesn't lose typed-but-unsaved text in a card, deck, or Magic Add.
 
 Open the built HTML file in Safari and use Share → **Add to Home Screen** to get an app icon
 that launches full-screen, no browser chrome — this is how it's meant to be used on an iPad.
+
+### Nested decks ("sections")
+
+Name a deck with `::` to nest it, e.g. `School::Biology::Exam 1` — any segment that doesn't
+exist yet is created, and an existing one is reused (so `School::Biology` and later
+`School::Chemistry` share one `School`). The sidebar and dashboard show the resulting tree
+with expand/collapse toggles; a parent deck's badge counts and "Study Now" cover its own
+cards plus everything nested under it, the same way opening `School` studies Biology and
+Chemistry together, matching Anki's own subdeck model.
+
+### Real `.apkg` import, sized for large collections
+
+Unlike the desktop app's importer (which needs Node's filesystem), this one runs entirely in
+the browser — and it's built to handle a large `.apkg` without loading the whole thing into
+memory. Most of a package's size is usually bundled media (images/audio), which this never
+touches: it reads the ZIP's central directory (a small index, even for a huge archive) to
+find exactly where `collection.anki2`/`.anki21` lives, then reads and decompresses only that
+one entry via `Blob.slice()`. Peak memory stays proportional to the card data itself, not the
+package — verified with a fixture where a 30MB dummy media entry sits right next to the real
+collection, and the importer touches under 70KB total to extract it. Zip64 (needed for any
+archive over ~4GB) is supported. What doesn't carry over: media files themselves (no
+image/audio rendering) and the original deck's scheduling history — cards come in fresh as
+"new", same as the desktop importer.

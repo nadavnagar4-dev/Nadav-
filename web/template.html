@@ -179,6 +179,25 @@
   .deck-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
   .deck-badges { display: flex; gap: 4px; }
 
+  .tree-toggle {
+    width: 18px;
+    height: 18px;
+    flex-shrink: 0;
+    border: none;
+    background: transparent;
+    color: var(--text-muted);
+    font-size: 13px;
+    font-weight: 700;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 4px;
+  }
+
+  .tree-toggle:active { background: var(--hover-bg); }
+  .tree-toggle.tree-toggle-spacer { cursor: default; }
+
   .deck-badge {
     font-size: 11px;
     font-weight: 700;
@@ -330,6 +349,7 @@
 
   .pill-icon { font-size: 13px; }
   .pill-magic { background: linear-gradient(135deg, #7b2ff7, #a637f0); border-color: transparent; }
+  .pill-apkg { background: linear-gradient(135deg, #2451e8, #3d6bff); border-color: transparent; }
   .pill-neutral { background: rgba(255, 255, 255, 0.07); }
   .pill:active { filter: brightness(0.88); }
 
@@ -618,12 +638,14 @@
 
   <div id="action-bar">
     <button id="magic-add-btn" class="pill pill-magic"><span class="pill-icon">⚡</span> Magic Add</button>
+    <button id="add-apkg-btn" class="pill pill-apkg"><span class="pill-icon">🗄</span> Add Anki File (.apkg)</button>
     <button id="new-deck-btn" class="pill pill-neutral"><span class="pill-icon">＋</span> New Deck</button>
     <button id="import-btn" class="pill pill-neutral"><span class="pill-icon">⇪</span> Import (or paste)</button>
   </div>
 </div>
 
 <input type="file" id="json-file-input" accept="application/json" hidden />
+<input type="file" id="apkg-file-input" accept=".apkg" hidden />
 
 <div id="modal-backdrop" hidden>
   <div id="modal" role="dialog">
@@ -638,6 +660,18 @@
 
 <div id="toast"></div>
 
+<script>
+window.__SQL_WASM_B64__ = "{{SQL_WASM_B64}}";
+</script>
+<script>
+{{FFLATE_JS}}
+</script>
+<script>
+{{SQL_WASM_JS}}
+</script>
+<script>
+{{APKG_JS}}
+</script>
 <script>
 {{APP_JS}}
 </script>

@@ -12,6 +12,7 @@
   "devDependencies": {
     "electron": "^32.0.0",
     "electron-builder": "^25.0.0",
+    "fflate": "^0.8.3",
     "png2icons": "^2.0.1"
   },
   "build": {

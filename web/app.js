@@ -101,9 +101,30 @@
       persist();
     },
 
-    addDeck(name) {
-      const deck = { id: makeId(), name: name.trim() || 'Untitled Deck', createdAt: Date.now() };
+    addDeck(name, parentId = null) {
+      const deck = { id: makeId(), name: name.trim() || 'Untitled Deck', parentId: parentId || null, createdAt: Date.now() };
       state.decks.push(deck);
+      persist();
+      return deck;
+    },
+
+    // Splits "Parent::Child::Grandchild" into a chain of decks, reusing any
+    // segment that already exists under the same parent (so adding
+    // "School::Biology" and later "School::Chemistry" share one "School").
+    // Returns the leaf deck — the one that actually holds new cards.
+    addDeckPath(fullName) {
+      const segments = fullName.split('::').map((s) => s.trim()).filter(Boolean);
+      if (segments.length === 0) segments.push('Untitled Deck');
+      let parentId = null;
+      let deck = null;
+      for (const segment of segments) {
+        deck = state.decks.find((d) => d.name === segment && (d.parentId || null) === parentId);
+        if (!deck) {
+          deck = { id: makeId(), name: segment, parentId, createdAt: Date.now() };
+          state.decks.push(deck);
+        }
+        parentId = deck.id;
+      }
       persist();
       return deck;
     },
@@ -116,11 +137,28 @@
       return deck;
     },
 
+    // A deck's id, plus every descendant's id (its children, their children, ...).
+    collectSubtreeIds(rootId) {
+      const ids = new Set([rootId]);
+      let added = true;
+      while (added) {
+        added = false;
+        for (const d of state.decks) {
+          if (d.parentId && ids.has(d.parentId) && !ids.has(d.id)) {
+            ids.add(d.id);
+            added = true;
+          }
+        }
+      }
+      return ids;
+    },
+
     deleteDeck(id) {
-      state.decks = state.decks.filter((d) => d.id !== id);
-      state.cards = state.cards.filter((c) => c.deckId !== id);
-      state.log = state.log.filter((e) => e.deckId !== id);
-      if (state.settings.lastSelectedDeckId === id) state.settings.lastSelectedDeckId = null;
+      const ids = this.collectSubtreeIds(id);
+      state.decks = state.decks.filter((d) => !ids.has(d.id));
+      state.cards = state.cards.filter((c) => !ids.has(c.deckId));
+      state.log = state.log.filter((e) => !ids.has(e.deckId));
+      if (ids.has(state.settings.lastSelectedDeckId)) state.settings.lastSelectedDeckId = null;
       persist();
     },
 
@@ -171,6 +209,16 @@
       const now = Date.now();
       return state.cards
         .filter((c) => c.deckId === deckId && c.due <= now)
+        .sort((a, b) => (a.state === 'new' ? 1 : 0) - (b.state === 'new' ? 1 : 0) || a.due - b.due);
+    },
+
+    // Same as dueCardsForDeck, but pulls in every descendant deck's due cards
+    // too — studying a deck with subdecks studies the whole branch.
+    dueCardsForDeckTree(deckId) {
+      const ids = this.collectSubtreeIds(deckId);
+      const now = Date.now();
+      return state.cards
+        .filter((c) => ids.has(c.deckId) && c.due <= now)
         .sort((a, b) => (a.state === 'new' ? 1 : 0) - (b.state === 'new' ? 1 : 0) || a.due - b.due);
     },
 
@@ -248,6 +296,41 @@
     toastTimer = setTimeout(() => el.classList.remove('show'), 3200);
   }
 
+  // ---------- Auto-save drafts (protects in-progress typing from a crash/refresh
+  // while a modal is open — normal Cancel/Save/backdrop-dismiss clears the draft) ----------
+  function draftKey(kind, contextId) {
+    return `macanki-draft-${kind}${contextId != null ? ':' + contextId : ''}`;
+  }
+  function saveDraft(kind, contextId, data) {
+    try {
+      localStorage.setItem(draftKey(kind, contextId), JSON.stringify(data));
+    } catch (e) {
+      /* drafts are a nice-to-have; never block on storage errors */
+    }
+  }
+  function loadDraftValue(kind, contextId) {
+    try {
+      const raw = localStorage.getItem(draftKey(kind, contextId));
+      return raw ? JSON.parse(raw) : null;
+    } catch (e) {
+      return null;
+    }
+  }
+  function clearAllDrafts() {
+    try {
+      for (let i = localStorage.length - 1; i >= 0; i--) {
+        const k = localStorage.key(i);
+        if (k && k.startsWith('macanki-draft-')) localStorage.removeItem(k);
+      }
+    } catch (e) {
+      /* ignore */
+    }
+  }
+  function restoreDraft(kind, contextId, input) {
+    const val = loadDraftValue(kind, contextId);
+    if (typeof val === 'string' && val) input.value = val;
+  }
+
   // ---------- App UI ----------
   const appState = {
     decks: [],
@@ -258,6 +341,76 @@
     studyIndex: 0,
     showingAnswer: false,
   };
+
+  // ---------- Deck tree (nested "sections", like Anki's Parent::Child decks) ----------
+  // Tracks only what's been explicitly collapsed — anything absent (including
+  // a section created just now) defaults to expanded, with no separate "seed
+  // the initial state" step that could go stale as new sections appear.
+  const collapsedDeckIds = new Set();
+  let deckTreeById = new Map(); // refreshed by buildDeckTree(); id -> node with rollup* fields
+
+  function buildDeckTree(decks) {
+    const byId = new Map();
+    for (const d of decks) byId.set(d.id, { ...d, children: [] });
+    const roots = [];
+    for (const node of byId.values()) {
+      if (node.parentId && byId.has(node.parentId)) {
+        byId.get(node.parentId).children.push(node);
+      } else {
+        roots.push(node);
+      }
+    }
+    const sortRec = (nodes) => {
+      nodes.sort((a, b) => a.name.localeCompare(b.name));
+      nodes.forEach((n) => sortRec(n.children));
+    };
+    sortRec(roots);
+
+    const rollup = (node) => {
+      let newCount = node.newCount;
+      let dueReviewCount = node.dueReviewCount;
+      let cardCount = node.cardCount;
+      let todayCount = node.todayCount;
+      for (const child of node.children) {
+        rollup(child);
+        newCount += child.rollupNewCount;
+        dueReviewCount += child.rollupDueReviewCount;
+        cardCount += child.rollupCardCount;
+        todayCount += child.rollupTodayCount;
+      }
+      node.rollupNewCount = newCount;
+      node.rollupDueReviewCount = dueReviewCount;
+      node.rollupDueCount = newCount + dueReviewCount;
+      node.rollupCardCount = cardCount;
+      node.rollupTodayCount = todayCount;
+    };
+    roots.forEach(rollup);
+
+    deckTreeById = byId;
+    return roots;
+  }
+
+  function flattenVisibleTree(roots, depth = 0, out = []) {
+    for (const node of roots) {
+      out.push({ node, depth });
+      if (node.children.length > 0 && !collapsedDeckIds.has(node.id)) {
+        flattenVisibleTree(node.children, depth + 1, out);
+      }
+    }
+    return out;
+  }
+
+  function toggleDeckExpanded(id) {
+    if (collapsedDeckIds.has(id)) collapsedDeckIds.delete(id);
+    else collapsedDeckIds.add(id);
+  }
+
+  function treeRowHtml(node, expandBtnClass) {
+    const toggle = node.children.length > 0
+      ? `<button class="${expandBtnClass}" data-id="${node.id}">${collapsedDeckIds.has(node.id) ? '+' : '−'}</button>`
+      : `<span class="${expandBtnClass} tree-toggle-spacer"></span>`;
+    return toggle;
+  }
 
   const el = {
     deckList: document.getElementById('deck-list'),
@@ -291,6 +444,7 @@
     modalConfirm: document.getElementById('modal-confirm'),
     modalCancel: document.getElementById('modal-cancel'),
     jsonFileInput: document.getElementById('json-file-input'),
+    apkgFileInput: document.getElementById('apkg-file-input'),
   };
 
   function panes() {
@@ -330,14 +484,25 @@
   function renderDeckList() {
     el.homeBtn.classList.toggle('selected', !appState.selectedDeckId);
     el.deckList.innerHTML = '';
-    for (const deck of appState.decks) {
+    const roots = buildDeckTree(appState.decks);
+    const flat = flattenVisibleTree(roots);
+    for (const { node, depth } of flat) {
       const item = document.createElement('div');
-      item.className = 'deck-item' + (deck.id === appState.selectedDeckId ? ' selected' : '');
+      item.className = 'deck-item' + (node.id === appState.selectedDeckId ? ' selected' : '');
+      item.style.paddingLeft = `${10 + depth * 16}px`;
       const badges = [];
-      if (deck.newCount > 0) badges.push(`<span class="deck-badge badge-new">${deck.newCount}</span>`);
-      if (deck.dueReviewCount > 0) badges.push(`<span class="deck-badge badge-due">${deck.dueReviewCount}</span>`);
-      item.innerHTML = `<span class="deck-name">${escapeHtml(deck.name)}</span><div class="deck-badges">${badges.join('')}</div>`;
-      item.addEventListener('click', () => selectDeck(deck.id));
+      if (node.rollupNewCount > 0) badges.push(`<span class="deck-badge badge-new">${node.rollupNewCount}</span>`);
+      if (node.rollupDueReviewCount > 0) badges.push(`<span class="deck-badge badge-due">${node.rollupDueReviewCount}</span>`);
+      item.innerHTML = `${treeRowHtml(node, 'tree-toggle')}<span class="deck-name">${escapeHtml(node.name)}</span><div class="deck-badges">${badges.join('')}</div>`;
+      const toggleBtn = item.querySelector('.tree-toggle:not(.tree-toggle-spacer)');
+      if (toggleBtn) {
+        toggleBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          toggleDeckExpanded(node.id);
+          renderDeckList();
+        });
+      }
+      item.addEventListener('click', () => selectDeck(node.id));
       el.deckList.appendChild(item);
     }
   }
@@ -365,15 +530,25 @@
       el.deckLibraryRows.innerHTML = '<div class="deck-library-empty">No decks yet — use New Deck below to create your first one.</div>';
       return;
     }
-    for (const deck of appState.decks) {
+    const roots = buildDeckTree(appState.decks);
+    const flat = flattenVisibleTree(roots);
+    for (const { node, depth } of flat) {
       const row = document.createElement('div');
       row.className = 'deck-library-row';
       row.innerHTML = `
-        <span class="deck-library-name"><span class="deck-dot"></span>${escapeHtml(deck.name)}</span>
-        <span class="deck-library-col">${deck.dueReviewCount > 0 ? `<span class="deck-badge badge-due">${deck.dueReviewCount}</span>` : ''}</span>
-        <span class="deck-library-col">${deck.newCount > 0 ? `<span class="deck-badge badge-new">${deck.newCount}</span>` : ''}</span>
+        <span class="deck-library-name" style="padding-left:${depth * 16}px">${treeRowHtml(node, 'tree-toggle')}<span class="deck-dot"></span>${escapeHtml(node.name)}</span>
+        <span class="deck-library-col">${node.rollupDueReviewCount > 0 ? `<span class="deck-badge badge-due">${node.rollupDueReviewCount}</span>` : ''}</span>
+        <span class="deck-library-col">${node.rollupNewCount > 0 ? `<span class="deck-badge badge-new">${node.rollupNewCount}</span>` : ''}</span>
       `;
-      row.addEventListener('click', () => selectDeck(deck.id));
+      const toggleBtn = row.querySelector('.tree-toggle:not(.tree-toggle-spacer)');
+      if (toggleBtn) {
+        toggleBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          toggleDeckExpanded(node.id);
+          renderDashboard();
+        });
+      }
+      row.addEventListener('click', () => selectDeck(node.id));
       el.deckLibraryRows.appendChild(row);
     }
   }
@@ -395,16 +570,20 @@
       return;
     }
     showPane(el.deckView);
+    const rollup = deckTreeById.get(deck.id) || deck;
+    const hasChildren = rollup.children && rollup.children.length > 0;
     el.deckTitle.textContent = deck.name;
-    el.deckSubtitle.textContent = `${deck.cardCount} card${deck.cardCount === 1 ? '' : 's'} · ${deck.newCount} new`;
-    el.studyHint.textContent = deck.dueCount > 0
-      ? `${deck.dueCount} card${deck.dueCount === 1 ? '' : 's'} due`
+    el.deckSubtitle.textContent = hasChildren
+      ? `${deck.cardCount} card${deck.cardCount === 1 ? '' : 's'} directly here · ${rollup.rollupCardCount} across all sections`
+      : `${deck.cardCount} card${deck.cardCount === 1 ? '' : 's'} · ${deck.newCount} new`;
+    el.studyHint.textContent = rollup.rollupDueCount > 0
+      ? `${rollup.rollupDueCount} card${rollup.rollupDueCount === 1 ? '' : 's'} due${hasChildren ? ' across all sections' : ''}`
       : 'Nothing due right now';
-    el.todayStat.textContent = `Studied today: ${deck.todayCount}`;
+    el.todayStat.textContent = `Studied today: ${rollup.rollupTodayCount}`;
 
     const studyBtn = document.getElementById('study-btn');
-    studyBtn.disabled = deck.dueCount === 0;
-    studyBtn.style.opacity = deck.dueCount === 0 ? 0.4 : 1;
+    studyBtn.disabled = rollup.rollupDueCount === 0;
+    studyBtn.style.opacity = rollup.rollupDueCount === 0 ? 0.4 : 1;
 
     appState.currentCards = Store.cardsForDeck(deck.id);
     renderCardList();
@@ -515,13 +694,16 @@
     el.modalBody.innerHTML = `
       <label for="deck-name-input">Deck name</label>
       <input id="deck-name-input" type="text" value="${existingDeck ? escapeHtml(existingDeck.name) : ''}" />
+      ${existingDeck ? '' : '<p class="hint">Use "::" to nest it in a section, e.g. "School::Biology::Exam 1".</p>'}
     `;
     el.modalConfirm.textContent = 'Save';
     el.modalConfirm.className = 'primary-btn';
     el.modalBackdrop.hidden = false;
     const input = document.getElementById('deck-name-input');
+    restoreDraft('deck', null, input);
     input.focus();
     input.select();
+    input.addEventListener('input', () => saveDraft('deck', null, input.value));
 
     const onConfirm = () => {
       const name = input.value.trim();
@@ -529,7 +711,7 @@
       if (existingDeck) {
         Store.renameDeck(existingDeck.id, name);
       } else {
-        const deck = Store.addDeck(name);
+        const deck = Store.addDeckPath(name);
         appState.selectedDeckId = deck.id;
         Store.setLastSelectedDeck(deck.id);
       }
@@ -554,7 +736,18 @@
     el.modalConfirm.textContent = 'Save';
     el.modalConfirm.className = 'primary-btn';
     el.modalBackdrop.hidden = false;
-    document.getElementById('card-front-input').focus();
+    const frontEl = document.getElementById('card-front-input');
+    const backEl = document.getElementById('card-back-input');
+    const draftContext = existingCard ? existingCard.id : 'new';
+    const draft = loadDraftValue('card', draftContext);
+    if (draft) {
+      frontEl.value = draft.front || '';
+      backEl.value = draft.back || '';
+    }
+    const saveCardDraft = () => saveDraft('card', draftContext, { front: frontEl.value, back: backEl.value });
+    frontEl.addEventListener('input', saveCardDraft);
+    backEl.addEventListener('input', saveCardDraft);
+    frontEl.focus();
 
     const onConfirm = () => {
       const f = document.getElementById('card-front-input').value.trim();
@@ -625,7 +818,11 @@
     el.modalConfirm.textContent = 'Save';
     el.modalConfirm.className = 'primary-btn';
     el.modalBackdrop.hidden = false;
-    document.getElementById('magic-textarea').focus();
+    const magicTextarea = document.getElementById('magic-textarea');
+    const magicDraft = loadDraftValue('magic', null);
+    if (magicDraft) magicTextarea.value = magicDraft;
+    magicTextarea.addEventListener('input', () => saveDraft('magic', null, magicTextarea.value));
+    magicTextarea.focus();
 
     const onConfirm = () => {
       const text = document.getElementById('magic-textarea').value;
@@ -635,7 +832,7 @@
       let deckId = appState.selectedDeckId;
       if (!deckId) {
         const nameInput = document.getElementById('magic-deck-name');
-        const deck = Store.addDeck((nameInput && nameInput.value.trim()) || 'Quick Add');
+        const deck = Store.addDeckPath((nameInput && nameInput.value.trim()) || 'Quick Add');
         deckId = deck.id;
       }
       Store.addCardsBulk(deckId, pairs);
@@ -657,6 +854,7 @@
     el.modalBody.innerHTML = '';
     el.modalConfirm.style.background = '';
     currentConfirmHandler = null;
+    clearAllDrafts();
   }
 
   el.modalConfirm.addEventListener('click', () => currentConfirmHandler && currentConfirmHandler());
@@ -668,7 +866,7 @@
   // ---------- Study mode ----------
   function startStudy() {
     if (!appState.selectedDeckId) return;
-    const cards = Store.dueCardsForDeck(appState.selectedDeckId);
+    const cards = Store.dueCardsForDeckTree(appState.selectedDeckId);
     if (cards.length === 0) {
       showPane(el.studyDone);
       return;
@@ -784,6 +982,46 @@
     }
   });
 
+  // ---------- .apkg (real Anki package) import ----------
+  // Lazily initializes sql.js once, from the wasm binary inlined into this
+  // page (no network fetch — works offline and inside any sandbox).
+  let sqlJsPromise = null;
+  function loadSQL() {
+    if (!sqlJsPromise) {
+      const wasmBytes = base64ToBytes(window.__SQL_WASM_B64__);
+      sqlJsPromise = window.initSqlJs({ wasmBinary: wasmBytes });
+    }
+    return sqlJsPromise;
+  }
+
+  function base64ToBytes(b64) {
+    const bin = atob(b64);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    return bytes;
+  }
+
+  function doImportApkg() {
+    el.apkgFileInput.click();
+  }
+
+  el.apkgFileInput.addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    e.target.value = '';
+    if (!file) return;
+    showToast(`Reading ${file.name}…`);
+    try {
+      const SQL = await loadSQL();
+      const result = await window.MacAnkiApkg.parseApkgBlob(file, file.name, SQL);
+      const deck = Store.importDeck(result.name, result.cards);
+      refresh();
+      selectDeck(deck.id);
+      showToast(`Imported ${result.cards.length} card${result.cards.length === 1 ? '' : 's'} from ${file.name}.`);
+    } catch (err) {
+      showToast(err && err.message ? err.message : "Couldn't import that .apkg file.");
+    }
+  });
+
   // ---------- Actions ----------
   function doAddDeck() {
     openDeckModal(null);
@@ -797,6 +1035,7 @@
   // ---------- Event wiring ----------
   el.homeBtn.addEventListener('click', goHome);
   document.getElementById('new-deck-btn').addEventListener('click', doAddDeck);
+  document.getElementById('add-apkg-btn').addEventListener('click', doImportApkg);
   document.getElementById('magic-add-btn').addEventListener('click', openMagicAddModal);
   document.getElementById('rename-deck-btn').addEventListener('click', () => {
     const deck = appState.decks.find((d) => d.id === appState.selectedDeckId);
