@@ -62,6 +62,8 @@ renderer/
   styles.css        Dark glass UI over a wallpaper background
   app.js            UI logic wired to window.api (via preload)
   assets/wallpaper.jpg   Background image
+test-reader/
+  index.html        Test Reader: photo of a test → read aloud slowly (standalone, no build)
 web/                Standalone browser build (no Electron, no iPad required — but works there)
   template.html     Page shell + styles (placeholders filled in by build.js)
   app.js            Store (localStorage-backed) + UI logic, no IPC
@@ -116,3 +118,39 @@ decompress that extra layer via `fzstd` before handing the bytes to sql.js; the 
 uncompressed `collection.anki21`/`.anki2` formats work too. What doesn't carry over: media
 files themselves (no image/audio rendering) and the original deck's scheduling history —
 cards come in fresh as "new".
+
+## Test Reader (private teacher)
+
+`test-reader/index.html` is a separate single-page tool: upload (or take) a photo of a test and
+a "private teacher" reads it aloud to you, slowly and like a person would. It's one HTML file
+with no build step; open it in Safari/Chrome (on iPad: Share → **Add to Home Screen**).
+
+- **Photo → text** runs on your device with Tesseract.js (Hebrew + English); several pages can be
+  added at once. It needs an internet connection the first time to download the reading engine.
+- **Finds the page for you**: after picking a photo, it puts a box around the sheet of paper
+  (leaving out the table, pens, and the facing page across a spiral binding); drag a new box to
+  change it. Highlighter marks are removed before reading, and low-confidence scraps are dropped.
+- **Tests vs. notes**: a test (questions with "?", answer choices, or the word "question") gets
+  "Question 3." and "Okay, next one."; study notes are read as-is with just the item numbers.
+- **✨ Best reading with Claude (optional)**: paste an Anthropic API key under "Best reading" and
+  each (cropped) page is transcribed by Claude (`claude-opus-5`, via the official
+  `@anthropic-ai/sdk` loaded in the page) instead of Tesseract — near-perfect on photos, bold
+  text, maths, tables and handwriting. The key is stored only in the browser's localStorage and
+  sent only to api.anthropic.com; if Claude can't be reached it falls back to the basic reader.
+  About 5–10 cents per page.
+- **As a claude.ai Artifact** (no key): published as an Artifact, the page reads photos with the
+  viewer's own Claude through the `sample` capability; a tall page is sliced at blank rows so
+  small print stays sharp. The artifact's network is blocked, so Tesseract and API-key reading
+  are off there. The published copy is this file minus its `<html>/<head>/<body>` wrapper and
+  the Tesseract script tag.
+- **Fix text** lets you correct anything the photo reading got wrong before listening.
+- The teacher reads one sentence at a time with natural, slightly varied pauses, says
+  "Question 3." and the answer letters, pauses longer after each question, and says things like
+  "Okay, next one." between questions. Blanks are read as "blank"; `+ = × ÷ √ ^`, ranges ("6-8"), arrows,
+  and `:` for division in Hebrew are read as words; "G+"/"G-" as gram positive/negative.
+- The sentence being read is highlighted; tap any sentence to hear it. Controls: play/pause,
+  say it again, previous/next sentence, previous/next question, a speed slider, a voice picker,
+  and **Wait after each question** so it stops and lets you answer.
+- Hebrew tests are detected automatically and read with a Hebrew voice; English sentences
+  inside a Hebrew test are read with an English voice. If the device has none,
+  add one on iPad under Settings → Accessibility → Spoken Content → Voices → Hebrew.
