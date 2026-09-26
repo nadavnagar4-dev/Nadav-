@@ -138,6 +138,11 @@ with no build step; open it in Safari/Chrome (on iPad: Share → **Add to Home S
   text, maths, tables and handwriting. The key is stored only in the browser's localStorage and
   sent only to api.anthropic.com; if Claude can't be reached it falls back to the basic reader.
   About 5–10 cents per page.
+- **As a claude.ai Artifact** (no key): published as an Artifact, the page reads photos with the
+  viewer's own Claude through the `sample` capability; a tall page is sliced at blank rows so
+  small print stays sharp. The artifact's network is blocked, so Tesseract and API-key reading
+  are off there. The published copy is this file minus its `<html>/<head>/<body>` wrapper and
+  the Tesseract script tag.
 - **Fix text** lets you correct anything the photo reading got wrong before listening.
 - The teacher reads one sentence at a time with natural, slightly varied pauses, says
   "Question 3." and the answer letters, pauses longer after each question, and says things like

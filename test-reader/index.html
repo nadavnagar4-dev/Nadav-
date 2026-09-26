@@ -5,7 +5,10 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <title>Test Reader</title>
-<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:ital,wght@0,400;0,700;1,400&display=swap" />
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js"></script>
 <style>
   :root {
     --bg: #f6f1e7;
@@ -21,7 +24,8 @@
     --danger: #b3462e;
   }
   @media (prefers-color-scheme: dark) {
-    :root {
+    :root:not([data-theme="light"]) {
+      color-scheme: dark;
       --bg: #1b1a17;
       --card: #25231f;
       --ink: #efe8dc;
@@ -35,13 +39,29 @@
       --danger: #e27a60;
     }
   }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --bg: #1b1a17;
+    --card: #25231f;
+    --ink: #efe8dc;
+    --muted: #a89f90;
+    --line: #3a362f;
+    --accent: #5bbf98;
+    --accent-ink: #10231b;
+    --hl: #5c4b12;
+    --hl-ink: #fff6d6;
+    --done: #7d7466;
+    --danger: #e27a60;
+  }
   * { box-sizing: border-box; }
   html, body { margin: 0; }
   body {
     background: var(--bg);
     color: var(--ink);
-    font: 18px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "Noto Sans Hebrew", sans-serif;
-    padding: env(safe-area-inset-top) 16px calc(120px + env(safe-area-inset-bottom));
+    /* Atkinson Hyperlegible is drawn for low-vision readers: distinct letter shapes, open counters. */
+    font: 18px/1.5 "Atkinson Hyperlegible", -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "Noto Sans Hebrew", sans-serif;
+    padding-inline: 16px;
+    padding-block: env(safe-area-inset-top, 0px) calc(140px + env(safe-area-inset-bottom, 0px));
   }
   main { max-width: 820px; margin: 0 auto; }
   header { display: flex; align-items: center; gap: 12px; padding: 20px 0 8px; }
@@ -99,7 +119,7 @@
   .progress div { height: 100%; width: 0; background: var(--accent); transition: width .2s; }
   .status { color: var(--muted); font-size: 15px; margin-top: 8px; min-height: 1.5em; }
   .status.error { color: var(--danger); }
-  .hidden { display: none !important; }
+  .hidden, [hidden] { display: none !important; }
 
   .crop-wrap { position: relative; overflow: hidden; border-radius: 10px; touch-action: none; user-select: none; -webkit-user-select: none; cursor: crosshair; line-height: 0; }
   .crop-wrap img { width: 100%; height: auto; display: block; pointer-events: none; }
@@ -161,6 +181,7 @@
       </label>
       <button class="link" id="paste-instead">…or type/paste the text instead</button>
     </div>
+    <p class="hint" id="claude-here" hidden>✨ Claude reads your photos here, on your Claude account. The first time, it asks you to allow it.</p>
     <details class="claude" id="claude-box">
       <summary>✨ Best reading: Claude <span class="pill" id="claude-state">off</span></summary>
       <p class="hint">The basic reader misses words in photos, bold text and maths. Claude reads the page
@@ -589,7 +610,85 @@
 - Describe a picture or diagram briefly in square brackets, e.g. "[Picture: a right triangle with sides 3 and 4]".
 - Write "[unclear]" for anything you can't read.`;
 
-  const apiKey = () => store.get('claudeKey', '');
+  // Inside a claude.ai viewer the page's network is blocked, so neither the basic reader's
+  // downloads nor direct API calls can work there; only the viewer's own Claude can.
+  const inClaudeViewer = !!(window.claude && typeof window.claude.use === 'function');
+  const apiKey = () => (inClaudeViewer ? '' : store.get('claudeKey', ''));
+  const basicReaderAvailable = () => !inClaudeViewer && typeof Tesseract !== 'undefined';
+
+  // Opened as a claude.ai Artifact, the page can ask Claude directly on the viewer's own
+  // account (the "sample" capability) — no API key. Resolves null anywhere else.
+  let samplePromise = null;
+  function getSample() {
+    if (!samplePromise) {
+      samplePromise = (async () => {
+        if (!window.claude || typeof window.claude.use !== 'function') return null;
+        const sample = await window.claude.use('sample');
+        if (!sample) return null;
+        const limits = await sample.limits().catch(() => null);
+        return limits && limits.images ? { sample, maxImages: limits.images.maxCount || 1 } : null;
+      })().catch(() => null);
+    }
+    return samplePromise;
+  }
+
+  // Claude sees each image at about 1.2 megapixels, so a tall, dense page is cut into
+  // slices at the emptiest row between lines of text, keeping small print sharp.
+  function slicePage(canvas, maxSlices) {
+    const MAX_PX = 1.6e6;
+    const slices = [canvas];
+    while (slices.length < maxSlices) {
+      let bi = -1;
+      slices.forEach((c, i) => { if (c.width * c.height > MAX_PX && (bi < 0 || c.height > slices[bi].height)) bi = i; });
+      if (bi < 0) break;
+      const c = slices[bi];
+      const ctx = c.getContext('2d');
+      const y0 = Math.round(c.height * 0.35), y1 = Math.round(c.height * 0.65);
+      const px = ctx.getImageData(0, y0, c.width, y1 - y0).data;
+      let bestY = Math.round(c.height / 2), bestInk = Infinity;
+      for (let y = 0; y < y1 - y0; y++) {
+        let ink = 0;
+        for (let x = 0, i = y * c.width * 4; x < c.width; x += 2, i += 8) {
+          if (0.299 * px[i] + 0.587 * px[i + 1] + 0.114 * px[i + 2] < 110) ink++;
+        }
+        const dist = Math.abs(y0 + y - c.height / 2);
+        if (ink < bestInk || (ink === bestInk && dist < Math.abs(bestY - c.height / 2))) { bestInk = ink; bestY = y0 + y; }
+      }
+      const cut = (sy, h) => {
+        const o = document.createElement('canvas');
+        o.width = c.width; o.height = h;
+        o.getContext('2d').drawImage(c, 0, sy, c.width, h, 0, 0, c.width, h);
+        return o;
+      };
+      slices.splice(bi, 1, cut(0, bestY), cut(bestY, c.height - bestY));
+    }
+    return slices;
+  }
+
+  async function readWithSample(canvas, { sample, maxImages }) {
+    const slices = slicePage(canvas, Math.min(4, maxImages));
+    const blobs = await Promise.all(slices.map((c) => new Promise((res) => c.toBlob(res, 'image/jpeg', 0.9))));
+    const note = slices.length > 1
+      ? `\n\nThe ${slices.length} images are consecutive slices of ONE page, top to bottom, cut between lines of text. Transcribe them as one continuous page.`
+      : '';
+    const { text } = await sample(CLAUDE_PROMPT + note + '\n\nTranscribe the page in the image' + (slices.length > 1 ? 's' : '') + '.', {
+      images: blobs,
+      modelTier: 'default',
+    });
+    return text.trim();
+  }
+
+  function sampleErrorMessage(e) {
+    switch (e && e.code) {
+      case 'not_granted': return "you didn't allow this page to use Claude";
+      case 'sampling_disabled': return "Claude isn't available on this account";
+      case 'rate_limited': return 'Claude is busy or your usage limit was reached — try again later';
+      case 'session_expired': return 'you need to sign in to Claude again';
+      case 'image_rejected': return "that photo couldn't be used — try another one";
+      case 'refused': return 'Claude declined to read this page';
+      default: return (e && e.message) || 'something went wrong';
+    }
+  }
 
   function refreshClaudeBox() {
     const has = !!apiKey();
@@ -646,8 +745,11 @@
     const files = Array.from(fileList).filter((f) => f.type.startsWith('image/') || /\.(heic|jpe?g|png|webp)$/i.test(f.name));
     if (!files.length) return;
     const key = apiKey();
-    if (!key && typeof Tesseract === 'undefined') {
-      setStatus('The text-reading engine did not load. Check your internet connection and reload the page.', true);
+    const claudeHere = await getSample();
+    if (!claudeHere && !key && !basicReaderAvailable()) {
+      setStatus(inClaudeViewer
+        ? "Reading photos isn't available here. Tap “type/paste the text instead” to have it read aloud."
+        : 'The text-reading engine did not load. Check your internet connection and reload the page.', true);
       return;
     }
     const lang = $('ocr-lang').value;
@@ -668,6 +770,24 @@
       }
 
       let fallbackNote = '';
+      if (claudeHere) {
+        try {
+          const pages = [];
+          for (let i = 0; i < crops.length; i++) {
+            setProgress((i + 0.5) / crops.length);
+            setStatus(`✨ Claude is reading page ${i + 1} of ${crops.length}… (about half a minute)`);
+            pages.push(await readWithSample(crops[i], claudeHere));
+          }
+          setProgress(null);
+          setStatus('');
+          const text = pages.join('\n\n').trim();
+          if (text) { loadText(text); return; }
+          fallbackNote = "Claude didn't find any text; trying the basic reader. ";
+        } catch (err) {
+          console.error(err);
+          fallbackNote = `Claude couldn't read it (${sampleErrorMessage(err)}). `;
+        }
+      }
       if (key) {
         try {
           const pages = [];
@@ -685,11 +805,11 @@
           console.error(err);
           fallbackNote = `Claude couldn't read it (${claudeErrorMessage(err)}), so I'm using the basic reader. `;
         }
-        if (typeof Tesseract === 'undefined') {
-          setProgress(null);
-          setStatus(fallbackNote.replace(/, so I'm using the basic reader\. $/, '.'), true);
-          return;
-        }
+      }
+      if (!basicReaderAvailable()) {
+        setProgress(null);
+        setStatus(fallbackNote.replace(/, so I'm using the basic reader\. $/, '.') + 'Try again, or type the text in.', true);
+        return;
       }
 
       const pagesToRead = crops.map(preprocess);
@@ -1116,6 +1236,10 @@
   });
   $('forget-key').addEventListener('click', () => { store.set('claudeKey', ''); refreshClaudeBox(); setStatus('Key removed.'); });
   refreshClaudeBox();
+  if (inClaudeViewer) $('claude-box').hidden = true;
+  getSample().then((c) => {
+    if (c) $('claude-here').hidden = false;
+  });
 
   $('paste-instead').addEventListener('click', () => {
     loadText('');
