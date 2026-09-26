@@ -87,6 +87,12 @@
   button:disabled { opacity: .5; cursor: default; }
   .link { background: none; border: none; color: var(--accent); padding: 4px 0; text-decoration: underline; }
 
+  details.claude { margin-top: 14px; border-top: 1px solid var(--line); padding-top: 12px; }
+  details.claude summary { cursor: pointer; font-weight: 600; }
+  details.claude .hint { margin: 8px 0 0; }
+  .pill { font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 999px; background: var(--line); color: var(--muted); margin-inline-start: 6px; }
+  .pill.on { background: var(--accent); color: var(--accent-ink); }
+  #api-key { flex: 1; min-width: 180px; font: inherit; font-size: 15px; color: inherit; background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; }
   .thumbs { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
   .thumbs img { height: 90px; border-radius: 8px; border: 1px solid var(--line); }
   .progress { height: 8px; background: var(--line); border-radius: 4px; overflow: hidden; margin-top: 12px; }
@@ -155,6 +161,17 @@
       </label>
       <button class="link" id="paste-instead">…or type/paste the text instead</button>
     </div>
+    <details class="claude" id="claude-box">
+      <summary>✨ Best reading: Claude <span class="pill" id="claude-state">off</span></summary>
+      <p class="hint">The basic reader misses words in photos, bold text and maths. Claude reads the page
+        almost perfectly, even handwriting. Paste your Anthropic API key (from console.anthropic.com):
+        it's saved only on this device and sent only to Anthropic. Each page costs about 5–10 cents.</p>
+      <div class="row">
+        <input type="password" id="api-key" autocomplete="off" spellcheck="false" />
+        <button id="save-key">Save</button>
+        <button class="link hidden" id="forget-key">Remove key</button>
+      </div>
+    </details>
     <div class="thumbs" id="thumbs"></div>
     <div class="progress hidden" id="progress"><div></div></div>
     <div class="status" id="status"></div>
@@ -230,6 +247,7 @@
       endNotes: ["That's the end of the page.", 'You can tap any sentence to hear it again.'],
       arrow: 'leads to',
       to: 'to',
+      pow: (n) => (n === '2' ? ' squared' : n === '3' ? ' cubed' : ` to the power of ${n}`),
       degrees: ' degrees',
       question: (n) => `Question ${n}.`,
       option: (l) => `${l.toUpperCase()}.`,
@@ -237,7 +255,7 @@
       waiting: "Take your time. Tap play when you're ready for the next question.",
       end: ["That's the whole test.", 'You can tap any sentence if you want to hear it again. Good luck!'],
       blank: 'blank',
-      sym: { '+': ' plus ', '=': ' equals ', '×': ' times ', '÷': ' divided by ', '%': ' percent', '<': ' is less than ', '>': ' is greater than ' },
+      sym: { '+': ' plus ', '=': ' equals ', '×': ' times ', '÷': ' divided by ', '%': ' percent', '√': ' the square root of ', '<': ' is less than ', '>': ' is greater than ' },
       minus: ' minus ',
     },
     he: {
@@ -246,6 +264,7 @@
       endNotes: ['זה סוף הדף.', 'אפשר ללחוץ על כל משפט כדי לשמוע אותו שוב.'],
       arrow: 'מוביל ל',
       to: 'עד',
+      pow: (n) => (n === '2' ? ' בריבוע' : ` בחזקת ${n}`),
       degrees: ' מעלות',
       question: (n) => `שאלה ${n}.`,
       option: (l) => `${l}.`,
@@ -253,7 +272,7 @@
       waiting: 'קח את הזמן. לחץ על הפעלה כשתהיה מוכן לשאלה הבאה.',
       end: ['זה כל המבחן.', 'אפשר ללחוץ על כל משפט כדי לשמוע אותו שוב. בהצלחה!'],
       blank: 'ריק',
-      sym: { '+': ' ועוד ', '=': ' שווה ', '×': ' כפול ', '÷': ' חלקי ', '%': ' אחוז', '<': ' קטן מ ', '>': ' גדול מ ' },
+      sym: { '+': ' ועוד ', '=': ' שווה ', '×': ' כפול ', '÷': ' חלקי ', '%': ' אחוז', '√': ' שורש של ', '<': ' קטן מ ', '>': ' גדול מ ' },
       minus: ' פחות ',
     },
   };
@@ -555,10 +574,79 @@
     return out.join('\n\n');
   }
 
+  // ---------- Reading with Claude (optional, much more accurate) ----------
+  const CLAUDE_SDK = 'https://cdn.jsdelivr.net/npm/@anthropic-ai/sdk@0.128.0/+esm';
+  const CLAUDE_PROMPT = `You transcribe a photo or screenshot of a school test or study page so it can be read aloud to a student who finds reading hard. Output only the page's text: no preamble, no comments, no answers.
+
+- Copy exactly what is written, in its original language(s). Don't fix, summarise, translate or answer anything. Include bold, highlighted, coloured and handwritten text.
+- Only the main page: leave out the background, objects on the table, and any other page that is only partly visible at the edge of the photo.
+- Keep the reading order. Put every heading, question, answer choice and bullet point on its own line, with a blank line between sections.
+- Start numbered questions or items with the number and a period ("3. ..."), answer choices with the letter and a period ("a. ..." or "א. ..."), and bullet points with "• ".
+- A sentence or item that wraps over several lines is written as one line.
+- Write a fill-in blank as "____".
+- Write a table one row per line, cells separated by " | ".
+- Write maths as plain text, e.g. "3/4", "x^2", "√9", "12 + 7 = ?".
+- Describe a picture or diagram briefly in square brackets, e.g. "[Picture: a right triangle with sides 3 and 4]".
+- Write "[unclear]" for anything you can't read.`;
+
+  const apiKey = () => store.get('claudeKey', '');
+
+  function refreshClaudeBox() {
+    const has = !!apiKey();
+    $('claude-state').textContent = has ? 'on' : 'off';
+    $('claude-state').classList.toggle('on', has);
+    $('api-key').value = '';
+    $('api-key').placeholder = has ? 'Key saved on this device' : 'sk-ant-…';
+    $('forget-key').classList.toggle('hidden', !has);
+  }
+
+  // The crop at up to 2576px on the long edge (the most Claude looks at), as JPEG base64.
+  function toClaudeImage(canvas) {
+    const scale = Math.min(1, 2576 / Math.max(canvas.width, canvas.height));
+    const c = document.createElement('canvas');
+    c.width = Math.round(canvas.width * scale);
+    c.height = Math.round(canvas.height * scale);
+    c.getContext('2d').drawImage(canvas, 0, 0, c.width, c.height);
+    let q = 0.92, data;
+    do { data = c.toDataURL('image/jpeg', q).split(',')[1]; q -= 0.1; } while (data.length > 4.5e6 && q > 0.4);
+    return data;
+  }
+
+  async function readWithClaude(canvas, key) {
+    const { default: Anthropic } = await import(CLAUDE_SDK);
+    const client = new Anthropic({ apiKey: key, dangerouslyAllowBrowser: true });
+    const response = await client.beta.messages.create({
+      model: 'claude-opus-5',
+      max_tokens: 16000,
+      // If Claude Opus 5 declines a page, the API retries it on another model.
+      betas: ['server-side-fallback-2026-07-01'],
+      fallbacks: 'default',
+      system: CLAUDE_PROMPT,
+      messages: [{
+        role: 'user',
+        content: [
+          { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: toClaudeImage(canvas) } },
+          { type: 'text', text: 'Transcribe this page.' },
+        ],
+      }],
+    });
+    if (response.stop_reason === 'refusal') throw new Error('Claude declined to read this page.');
+    return response.content.filter((b) => b.type === 'text').map((b) => b.text).join('').trim();
+  }
+
+  function claudeErrorMessage(err) {
+    const status = err && err.status;
+    if (status === 401) return 'the API key was not accepted — check it, or remove it';
+    if (status === 429) return 'too many requests right now — try again in a minute';
+    if (status === 400 && /credit|balance|billing/i.test(err.message || '')) return 'the account has no credit left';
+    return (err && err.message) || String(err);
+  }
+
   async function handleFiles(fileList) {
     const files = Array.from(fileList).filter((f) => f.type.startsWith('image/') || /\.(heic|jpe?g|png|webp)$/i.test(f.name));
     if (!files.length) return;
-    if (typeof Tesseract === 'undefined') {
+    const key = apiKey();
+    if (!key && typeof Tesseract === 'undefined') {
       setStatus('The text-reading engine did not load. Check your internet connection and reload the page.', true);
       return;
     }
@@ -568,7 +656,7 @@
     setStatus('');
     let worker;
     try {
-      const pagesToRead = [];
+      const crops = [];
       for (let i = 0; i < files.length; i++) {
         const photo = await loadImage(files[i]);
         const cropped = await cropStep(photo, i + 1, files.length);
@@ -576,16 +664,43 @@
         t.src = cropped.toDataURL('image/jpeg', 0.5);
         t.alt = 'Test page';
         $('thumbs').appendChild(t);
-        pagesToRead.push(preprocess(cropped));
+        crops.push(cropped);
       }
+
+      let fallbackNote = '';
+      if (key) {
+        try {
+          const pages = [];
+          for (let i = 0; i < crops.length; i++) {
+            setProgress((i + 0.5) / crops.length);
+            setStatus(`✨ Claude is reading page ${i + 1} of ${crops.length}…`);
+            pages.push(await readWithClaude(crops[i], key));
+          }
+          setProgress(null);
+          setStatus('');
+          const text = pages.join('\n\n').trim();
+          if (text) { loadText(text); return; }
+          fallbackNote = "Claude didn't find any text; trying the basic reader. ";
+        } catch (err) {
+          console.error(err);
+          fallbackNote = `Claude couldn't read it (${claudeErrorMessage(err)}), so I'm using the basic reader. `;
+        }
+        if (typeof Tesseract === 'undefined') {
+          setProgress(null);
+          setStatus(fallbackNote.replace(/, so I'm using the basic reader\. $/, '.'), true);
+          return;
+        }
+      }
+
+      const pagesToRead = crops.map(preprocess);
       setProgress(0);
-      setStatus('Getting ready to read… (the first time takes a little longer)');
+      setStatus(fallbackNote + 'Getting ready to read… (the first time takes a little longer)');
       let page = 0;
       worker = await Tesseract.createWorker(lang, 1, {
         logger: (m) => {
           if (m.status === 'recognizing text') {
             setProgress((page + m.progress) / pagesToRead.length);
-            setStatus(`Reading page ${page + 1} of ${pagesToRead.length}…`);
+            setStatus(`${fallbackNote}Reading page ${page + 1} of ${pagesToRead.length}…`);
           }
         },
       });
@@ -663,7 +778,8 @@
         if (/^[a-z]/.test(str.slice(off + m.length)) || /(?:^|[\s(])[A-Z]\.$/.test(before) || /\b(?:e\.g|i\.e|etc|vs|dr|mr|mrs|ms|st|approx|fig|no)\.$/i.test(before)) return m;
         return p + '\u0001';
       })
-      .replace(/([:;])\s+(?=[^\d\s])/g, '$1\u0001') // but not "8 : 2" (division)
+      // Colons too, but not "8 : 2" (division) or "the term: the sepsis…" (list/definition).
+      .replace(/([:;])\s+(?=[^\d\s])/g, (m, p, off, str) => (/^[a-z]/.test(str.slice(off + m.length)) ? m : p + '\u0001'))
       .split('\u0001');
     const out = [];
     for (const p of parts) {
@@ -688,6 +804,8 @@
     let s = text
       .replace(/_{2,}|\.{4,}|…{2,}/g, ` ${W.blank} `)
       .replace(/\s*(?:->|=>|→|⇒)\s*/g, ` ${W.arrow} `)
+      .replace(/\^\s*(\w+)/g, (m, n) => W.pow(n))
+      .replace(/\s*\|\s*/g, ', ')
       .replace(/\s+[-–—]\s+/g, ', ')
       .replace(/°\s*[cC]\b/g, W.degrees)
       // "6-8 hours" is a range; "7 - 3 = 4" is maths.
@@ -695,6 +813,8 @@
       .replace(/(\d)\s*[xX*]\s*(?=\d)/g, '$1 × ');
     // In Israeli schools ":" between numbers means "divided by".
     if (W === WORDS.he) s = s.replace(/(\d)\s*:\s*(?=\d)/g, '$1 ÷ ');
+    // Microbiology shorthand: "G+" / "G-" is gram positive / negative.
+    if (W === WORDS.en) s = s.replace(/\bG\s?\+/g, 'gram positive').replace(/\bG\s?-(?=[\s),.;:]|$)/g, 'gram negative');
     for (const [k, v] of Object.entries(W.sym)) s = s.split(k).join(v);
     return s.replace(/\s+/g, ' ').trim();
   }
@@ -986,6 +1106,16 @@
     const files = Array.from(e.clipboardData.files || []);
     if (files.length) handleFiles(files);
   });
+
+  $('save-key').addEventListener('click', () => {
+    const k = $('api-key').value.trim();
+    if (!k) return;
+    store.set('claudeKey', k);
+    refreshClaudeBox();
+    setStatus('Saved. Photos will now be read by Claude.');
+  });
+  $('forget-key').addEventListener('click', () => { store.set('claudeKey', ''); refreshClaudeBox(); setStatus('Key removed.'); });
+  refreshClaudeBox();
 
   $('paste-instead').addEventListener('click', () => {
     loadText('');

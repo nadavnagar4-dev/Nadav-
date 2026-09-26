@@ -132,11 +132,17 @@ with no build step; open it in Safari/Chrome (on iPad: Share → **Add to Home S
   change it. Highlighter marks are removed before reading, and low-confidence scraps are dropped.
 - **Tests vs. notes**: a test (questions with "?", answer choices, or the word "question") gets
   "Question 3." and "Okay, next one."; study notes are read as-is with just the item numbers.
+- **✨ Best reading with Claude (optional)**: paste an Anthropic API key under "Best reading" and
+  each (cropped) page is transcribed by Claude (`claude-opus-5`, via the official
+  `@anthropic-ai/sdk` loaded in the page) instead of Tesseract — near-perfect on photos, bold
+  text, maths, tables and handwriting. The key is stored only in the browser's localStorage and
+  sent only to api.anthropic.com; if Claude can't be reached it falls back to the basic reader.
+  About 5–10 cents per page.
 - **Fix text** lets you correct anything the photo reading got wrong before listening.
 - The teacher reads one sentence at a time with natural, slightly varied pauses, says
   "Question 3." and the answer letters, pauses longer after each question, and says things like
-  "Okay, next one." between questions. Blanks are read as "blank", and `+ = × ÷` (and `:` for
-  division in Hebrew) are read as words.
+  "Okay, next one." between questions. Blanks are read as "blank"; `+ = × ÷ √ ^`, ranges ("6-8"), arrows,
+  and `:` for division in Hebrew are read as words; "G+"/"G-" as gram positive/negative.
 - The sentence being read is highlighted; tap any sentence to hear it. Controls: play/pause,
   say it again, previous/next sentence, previous/next question, a speed slider, a voice picker,
   and **Wait after each question** so it stops and lets you answer.
