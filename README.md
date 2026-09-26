@@ -127,6 +127,11 @@ with no build step; open it in Safari/Chrome (on iPad: Share → **Add to Home S
 
 - **Photo → text** runs on your device with Tesseract.js (Hebrew + English); several pages can be
   added at once. It needs an internet connection the first time to download the reading engine.
+- **Finds the page for you**: after picking a photo, it puts a box around the sheet of paper
+  (leaving out the table, pens, and the facing page across a spiral binding); drag a new box to
+  change it. Highlighter marks are removed before reading, and low-confidence scraps are dropped.
+- **Tests vs. notes**: a test (questions with "?", answer choices, or the word "question") gets
+  "Question 3." and "Okay, next one."; study notes are read as-is with just the item numbers.
 - **Fix text** lets you correct anything the photo reading got wrong before listening.
 - The teacher reads one sentence at a time with natural, slightly varied pauses, says
   "Question 3." and the answer letters, pauses longer after each question, and says things like
@@ -135,5 +140,6 @@ with no build step; open it in Safari/Chrome (on iPad: Share → **Add to Home S
 - The sentence being read is highlighted; tap any sentence to hear it. Controls: play/pause,
   say it again, previous/next sentence, previous/next question, a speed slider, a voice picker,
   and **Wait after each question** so it stops and lets you answer.
-- Hebrew tests are detected automatically and read with a Hebrew voice. If the device has none,
+- Hebrew tests are detected automatically and read with a Hebrew voice; English sentences
+  inside a Hebrew test are read with an English voice. If the device has none,
   add one on iPad under Settings → Accessibility → Spoken Content → Voices → Hebrew.

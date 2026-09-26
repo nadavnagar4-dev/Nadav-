@@ -95,6 +95,10 @@
   .status.error { color: var(--danger); }
   .hidden { display: none !important; }
 
+  .crop-wrap { position: relative; overflow: hidden; border-radius: 10px; touch-action: none; user-select: none; -webkit-user-select: none; cursor: crosshair; line-height: 0; }
+  .crop-wrap img { width: 100%; height: auto; display: block; pointer-events: none; }
+  .crop-box { position: absolute; border: 3px solid var(--accent); border-radius: 4px; box-shadow: 0 0 0 9999px rgba(0, 0, 0, .5); pointer-events: none; }
+
   /* The test, as the student sees it while it is read */
   #test { font-size: 22px; line-height: 1.8; letter-spacing: .01em; word-spacing: .08em; }
   .block { margin: 0 0 14px; }
@@ -156,6 +160,22 @@
     <div class="status" id="status"></div>
   </section>
 
+  <!-- Step 1b: pick the part of the photo to read -->
+  <section class="card hidden" id="crop-card">
+    <p style="margin:0 0 4px"><strong>Drag a box around the part you want me to read.</strong>
+      <span id="crop-page" class="hint"></span></p>
+    <p class="hint hidden" id="crop-found">I found the page and put a box around it. Drag a new box if it's not right.</p>
+    <p class="hint">Leave out the table, pens, and any other page in the photo — I'll read it much better.</p>
+    <div class="crop-wrap" id="crop-wrap">
+      <img id="crop-img" alt="Your photo" draggable="false" />
+      <div class="crop-box hidden" id="crop-box"></div>
+    </div>
+    <div class="row">
+      <button class="primary" id="crop-go">Read the whole photo</button>
+      <button id="crop-reset">Clear box</button>
+    </div>
+  </section>
+
   <!-- Step 2: read -->
   <section class="card hidden" id="read-card">
     <div class="row" style="margin-top:0; justify-content: space-between;">
@@ -196,7 +216,6 @@
 
   const $ = (id) => document.getElementById(id);
   const synth = window.speechSynthesis;
-  const HEB = /[֐-׿]/;
 
   const store = {
     get(k, d) { try { const v = localStorage.getItem('testreader.' + k); return v === null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -207,6 +226,10 @@
   const WORDS = {
     en: {
       hello: ["Hi! I'm going to read your test to you, nice and slowly.", "Take your time. Let's start."],
+      helloNotes: ["Hi! I'll read this page to you, nice and slowly.", "Let's start."],
+      endNotes: ["That's the end of the page.", 'You can tap any sentence to hear it again.'],
+      arrow: 'leads to',
+      degrees: ' degrees',
       question: (n) => `Question ${n}.`,
       option: (l) => `${l.toUpperCase()}.`,
       nextQ: ['Okay, next one.', 'Alright. Next question.', "Let's move on.", 'Good. Here is the next one.'],
@@ -218,6 +241,10 @@
     },
     he: {
       hello: ['היי! אני אקריא לך את המבחן, לאט ובנחת.', 'קח את הזמן. בוא נתחיל.'],
+      helloNotes: ['היי! אני אקריא לך את הדף, לאט ובנחת.', 'בוא נתחיל.'],
+      endNotes: ['זה סוף הדף.', 'אפשר ללחוץ על כל משפט כדי לשמוע אותו שוב.'],
+      arrow: 'מוביל ל',
+      degrees: ' מעלות',
       question: (n) => `שאלה ${n}.`,
       option: (l) => `${l}.`,
       nextQ: ['טוב, נמשיך.', 'יופי. השאלה הבאה.', 'בוא נעבור לשאלה הבאה.', 'אוקיי, הנה השאלה הבאה.'],
@@ -230,8 +257,6 @@
   };
 
   // ---------- OCR ----------
-  let images = [];
-
   function setStatus(msg, isError) {
     $('status').textContent = msg || '';
     $('status').classList.toggle('error', !!isError);
@@ -241,8 +266,8 @@
     if (p !== null) $('progress').firstElementChild.style.width = Math.round(p * 100) + '%';
   }
 
-  // Shrink huge phone photos and boost contrast — faster and more accurate OCR.
-  function prepareImage(file) {
+  // Load a photo, shrinking huge phone photos (faster, and plenty sharp for reading).
+  function loadImage(file) {
     return new Promise((resolve, reject) => {
       const url = URL.createObjectURL(file);
       const img = new Image();
@@ -252,30 +277,274 @@
         const c = document.createElement('canvas');
         c.width = Math.round(img.width * scale);
         c.height = Math.round(img.height * scale);
-        const ctx = c.getContext('2d');
-        ctx.drawImage(img, 0, 0, c.width, c.height);
-        const data = ctx.getImageData(0, 0, c.width, c.height);
-        const px = data.data;
-        let lo = 255, hi = 0;
-        const gray = new Uint8ClampedArray(px.length / 4);
-        for (let i = 0, j = 0; i < px.length; i += 4, j++) {
-          const g = 0.299 * px[i] + 0.587 * px[i + 1] + 0.114 * px[i + 2];
-          gray[j] = g;
-          if (g < lo) lo = g;
-          if (g > hi) hi = g;
-        }
-        const range = Math.max(1, hi - lo);
-        for (let i = 0, j = 0; i < px.length; i += 4, j++) {
-          const v = ((gray[j] - lo) / range) * 255;
-          px[i] = px[i + 1] = px[i + 2] = v;
-        }
-        ctx.putImageData(data, 0, 0);
+        c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
         URL.revokeObjectURL(url);
-        resolve({ canvas: c, thumb: c.toDataURL('image/jpeg', 0.5) });
+        resolve(c);
       };
       img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("Couldn't open that image.")); };
       img.src = url;
     });
+  }
+
+  // Grayscale + contrast, and wipe out highlighter marker (bright, colourful pixels)
+  // so highlighted lines read as well as plain ones.
+  function preprocess(src) {
+    const c = document.createElement('canvas');
+    c.width = src.width;
+    c.height = src.height;
+    const ctx = c.getContext('2d');
+    ctx.drawImage(src, 0, 0);
+    const data = ctx.getImageData(0, 0, c.width, c.height);
+    const px = data.data;
+    const gray = new Uint8ClampedArray(px.length / 4);
+    const hist = new Uint32Array(256);
+    for (let i = 0, j = 0; i < px.length; i += 4, j++) {
+      const r = px[i], g = px[i + 1], b = px[i + 2];
+      let y = 0.299 * r + 0.587 * g + 0.114 * b;
+      const mx = Math.max(r, g, b), mn = Math.min(r, g, b);
+      if (y > 130 && mx > 0 && (mx - mn) / mx > 0.3) y = 255; // highlighter
+      gray[j] = y;
+      hist[gray[j]]++;
+    }
+    // Stretch between the 1st and 99th percentile (ignores a few stray pixels).
+    const n = gray.length;
+    let lo = 0, hi = 255, acc = 0;
+    for (let v = 0; v < 256; v++) { acc += hist[v]; if (acc > n * 0.001) { lo = v; break; } }
+    acc = 0;
+    for (let v = 255; v >= 0; v--) { acc += hist[v]; if (acc > n * 0.01) { hi = v; break; } }
+    const range = Math.max(1, hi - lo);
+    for (let i = 0, j = 0; i < px.length; i += 4, j++) {
+      const v = ((gray[j] - lo) / range) * 255;
+      px[i] = px[i + 1] = px[i + 2] = v;
+    }
+    ctx.putImageData(data, 0, 0);
+    return c;
+  }
+
+  // Guess where the sheet of paper is: the biggest bright, colourless area of the photo
+  // (the table, a pen, and a neighbouring page — separated by the binding — fall outside).
+  function findPage(src) {
+    const W = 240, H = Math.max(1, Math.round((src.height / src.width) * W));
+    const c = document.createElement('canvas');
+    c.width = W; c.height = H;
+    const ctx = c.getContext('2d');
+    ctx.drawImage(src, 0, 0, W, H);
+    const px = ctx.getImageData(0, 0, W, H).data;
+    const lum = new Float32Array(W * H), hist = new Uint32Array(256);
+    for (let i = 0, j = 0; j < W * H; i += 4, j++) {
+      lum[j] = 0.299 * px[i] + 0.587 * px[i + 1] + 0.114 * px[i + 2];
+      hist[lum[j] | 0]++;
+    }
+    // Otsu threshold between "paper" and "everything else".
+    let sum = 0; for (let v = 0; v < 256; v++) sum += v * hist[v];
+    let wB = 0, sumB = 0, best = 0, th = 160;
+    for (let v = 0; v < 256; v++) {
+      wB += hist[v]; if (!wB) continue;
+      const wF = W * H - wB; if (!wF) break;
+      sumB += v * hist[v];
+      const d = sumB / wB - (sum - sumB) / wF, between = wB * wF * d * d;
+      if (between > best) { best = between; th = v; }
+    }
+    let mask = new Uint8Array(W * H);
+    for (let i = 0, j = 0; j < W * H; i += 4, j++) {
+      const mx = Math.max(px[i], px[i + 1], px[i + 2]), mn = Math.min(px[i], px[i + 1], px[i + 2]);
+      // Highlighted text counts as paper; bright wood/colour does not.
+      const highlighter = mx > 170 && (mx - mn) / mx > 0.3 && px[i + 2] < px[i + 1];
+      mask[j] = (lum[j] > th && (mx - mn) < 60) || (highlighter && lum[j] > th) ? 1 : 0;
+    }
+    // Close small gaps (lines of text) then erode to cut thin bridges between pages.
+    const morph = (m, grow, r) => {
+      const o = new Uint8Array(W * H);
+      for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+        let v = grow ? 0 : 1;
+        for (let dy = -r; dy <= r && v !== (grow ? 1 : 0); dy++) for (let dx = -r; dx <= r; dx++) {
+          const yy = y + dy, xx = x + dx;
+          const on = yy >= 0 && yy < H && xx >= 0 && xx < W && m[yy * W + xx];
+          if (grow && on) { v = 1; break; }
+          if (!grow && !on) { v = 0; break; }
+        }
+        o[y * W + x] = v;
+      }
+      return o;
+    };
+    mask = morph(morph(mask, true, 1), false, 3);
+    // Largest connected bright area.
+    const seen = new Int32Array(W * H).fill(-1);
+    let bestBox = null, bestArea = 0;
+    const stack = [];
+    for (let s0 = 0; s0 < W * H; s0++) {
+      if (!mask[s0] || seen[s0] !== -1) continue;
+      let area = 0, x0 = W, y0 = H, x1 = 0, y1 = 0;
+      stack.push(s0); seen[s0] = s0;
+      while (stack.length) {
+        const k = stack.pop(), x = k % W, y = (k / W) | 0;
+        area++;
+        if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y;
+        for (const n of [k - 1, k + 1, k - W, k + W]) {
+          if (n < 0 || n >= W * H || seen[n] !== -1 || !mask[n]) continue;
+          if ((n === k - 1 && x === 0) || (n === k + 1 && x === W - 1)) continue;
+          seen[n] = s0; stack.push(n);
+        }
+      }
+      if (area > bestArea) { bestArea = area; bestBox = { x0, y0, x1, y1 }; }
+    }
+    if (!bestBox) return null;
+    // A spiral/ring binding shows up as a vertical band of solid black; if there's one
+    // inside the box, the other page is on its far side — keep the bigger side.
+    const bw = bestBox.x1 - bestBox.x0 + 1, bh = bestBox.y1 - bestBox.y0 + 1;
+    const dark = [];
+    for (let x = bestBox.x0; x <= bestBox.x1; x++) {
+      let n = 0;
+      for (let y = bestBox.y0; y <= bestBox.y1; y++) if (lum[y * W + x] < 70) n++;
+      dark.push(n / bh);
+    }
+    let band = null;
+    for (let i = Math.round(bw * 0.1); i < Math.round(bw * 0.9); i++) {
+      if (band === null || dark[i] > dark[band]) band = i;
+    }
+    const median = dark.slice().sort((a, b) => a - b)[dark.length >> 1];
+    if (band !== null && dark[band] > 0.1 && dark[band] > median * 3) {
+      const edge = Math.max(0.06, dark[band] * 0.5);
+      let a = band, b = band;
+      while (a > 0 && dark[a - 1] > edge) a--;
+      while (b < bw - 1 && dark[b + 1] > edge) b++;
+      if (a > bw - 1 - b) bestBox.x1 = bestBox.x0 + a - 1;
+      else bestBox.x0 = bestBox.x0 + b + 1;
+    }
+    const pad = 3 + 1; // undo the erosion
+    const r = {
+      x: Math.max(0, bestBox.x0 - pad) / W, y: Math.max(0, bestBox.y0 - pad) / H,
+      w: (Math.min(W - 1, bestBox.x1 + pad) - Math.max(0, bestBox.x0 - pad)) / W,
+      h: (Math.min(H - 1, bestBox.y1 + pad) - Math.max(0, bestBox.y0 - pad)) / H,
+    };
+    const share = r.w * r.h;
+    return share > 0.1 && share < 0.92 ? r : null; // no clear page → leave it to the student
+  }
+
+  // Let the student drag a box around the part of the photo to read, so the table,
+  // a pen, or the next page in the photo don't turn into gibberish.
+  function cropStep(canvas, pageNo, pageCount) {
+    return new Promise((resolve) => {
+      $('upload-card').classList.add('hidden');
+      $('crop-card').classList.remove('hidden');
+      $('crop-page').textContent = pageCount > 1 ? `Page ${pageNo} of ${pageCount}` : '';
+      const wrap = $('crop-wrap');
+      const img = $('crop-img');
+      const box = $('crop-box');
+      img.src = canvas.toDataURL('image/jpeg', 0.8);
+      let rect = findPage(canvas); // fractions of the image: {x, y, w, h}
+      $('crop-found').classList.toggle('hidden', !rect);
+      let start = null;
+      const show = () => {
+        box.classList.toggle('hidden', !rect);
+        $('crop-go').textContent = rect ? 'Read this part' : 'Read the whole photo';
+        if (!rect) return;
+        box.style.left = rect.x * 100 + '%';
+        box.style.top = rect.y * 100 + '%';
+        box.style.width = rect.w * 100 + '%';
+        box.style.height = rect.h * 100 + '%';
+      };
+      const pos = (e) => {
+        const r = img.getBoundingClientRect();
+        return {
+          x: Math.min(1, Math.max(0, (e.clientX - r.left) / r.width)),
+          y: Math.min(1, Math.max(0, (e.clientY - r.top) / r.height)),
+        };
+      };
+      const down = (e) => { e.preventDefault(); start = pos(e); wrap.setPointerCapture(e.pointerId); };
+      const move = (e) => {
+        if (!start) return;
+        const p = pos(e);
+        const r = { x: Math.min(start.x, p.x), y: Math.min(start.y, p.y), w: Math.abs(p.x - start.x), h: Math.abs(p.y - start.y) };
+        if (r.w > 0.03 && r.h > 0.03) { rect = r; show(); }
+      };
+      const up = () => { start = null; };
+      const done = (useRect) => {
+        wrap.removeEventListener('pointerdown', down);
+        wrap.removeEventListener('pointermove', move);
+        wrap.removeEventListener('pointerup', up);
+        $('crop-go').onclick = $('crop-reset').onclick = null;
+        $('crop-card').classList.add('hidden');
+        $('upload-card').classList.remove('hidden');
+        if (!useRect || !rect) return resolve(canvas);
+        const c = document.createElement('canvas');
+        const sx = Math.round(rect.x * canvas.width), sy = Math.round(rect.y * canvas.height);
+        c.width = Math.max(1, Math.round(rect.w * canvas.width));
+        c.height = Math.max(1, Math.round(rect.h * canvas.height));
+        c.getContext('2d').drawImage(canvas, sx, sy, c.width, c.height, 0, 0, c.width, c.height);
+        resolve(c);
+      };
+      wrap.addEventListener('pointerdown', down);
+      wrap.addEventListener('pointermove', move);
+      wrap.addEventListener('pointerup', up);
+      $('crop-go').onclick = () => done(true);
+      $('crop-reset').onclick = () => { rect = null; show(); };
+      show();
+    });
+  }
+
+  const LETTER = /[A-Za-z֐-׿]/g;
+  const HEB_G = /[֐-׿]/g;
+  const BULLET_GLYPH = /^[•●◦▪■«»©®°*·eo]$/;
+
+  // Rebuild the text from Tesseract's words, dropping what it wasn't sure about:
+  // bits of the table, shadows and the page edge come out as low-confidence junk.
+  function textFromOcr(data) {
+    const paragraphs = [];
+    (data.blocks || []).forEach((bl) => (bl.paragraphs || []).forEach((p) => paragraphs.push(p.lines || [])));
+    if (!paragraphs.length) paragraphs.push(data.lines || []);
+
+    // Mostly-Latin page → stray Hebrew "words" are noise (and vice versa).
+    const all = data.text || '';
+    const letters = (all.match(LETTER) || []).length || 1;
+    const hebShare = (all.match(HEB_G) || []).length / letters;
+    const mainIsHeb = hebShare > 0.5;
+    const wrongScript = (t) => {
+      const h = (t.match(HEB_G) || []).length, l = (t.match(LETTER) || []).length;
+      if (!l) return false;
+      return mainIsHeb ? h === 0 && hebShare > 0.9 : h > 0 && hebShare < 0.1;
+    };
+    // Highlighted words often get a low score even when read right, so a word-shaped
+    // word is kept; only symbol soup and unsure scraps at the line's edges are dropped.
+    const looksReal = (t) => /[\p{L}]{3,}/u.test(t) || /^\(?[\p{L}\p{N}]{1,3}[.)]$/u.test(t);
+    const junk = (w) => (!/[\p{L}\p{N}]/u.test(w.text) && !/^_{2,}[.?!,:;]?$/.test(w.text)) || w.confidence < 20 ||
+      (w.confidence < 70 && !looksReal(w.text)) ||
+      (/^\p{L}$/u.test(w.text) && !/^[aAI]$/.test(w.text) && w.confidence < 90) || (wrongScript(w.text) && w.confidence < 85);
+    const realWord = (w) => (/[\p{L}]{3,}/u.test(w.text) && w.confidence >= 30) ||
+      (/^\p{L}{1,2}[.,;:)]?$/u.test(w.text) && w.confidence >= 80) || /^\(?\p{N}/u.test(w.text);
+
+    const out = [];
+    for (const lines of paragraphs) {
+      const kept = [];
+      for (const line of lines) {
+        let bullet = false;
+        const words = (line.words || []).map((w, i) => {
+          let t = w.text.replace(/^(\d{1,3})\.+_+(?=\p{L})/u, '$1. '); // "3.._Endotoxin" → "3. Endotoxin"
+          if (i === 0 && /^[«»©®•●]+(?=\p{L})/u.test(t)) { bullet = true; t = t.replace(/^[«»©®•●]+/u, ''); }
+          if (!/[\]}]/.test(t)) t = t.replace(/^[\[{|]+(?=\p{L})/u, '');
+          return { text: t, confidence: w.confidence };
+        });
+        while (words.length && junk(words[0])) {
+          if (BULLET_GLYPH.test(words[0].text)) bullet = true;
+          words.shift();
+        }
+        while (words.length && junk(words[words.length - 1])) {
+          // A confident lone "." or "?" is often all that's left of a fill-in blank.
+          const w = words[words.length - 1];
+          if (/^[.?]$/.test(w.text) && w.confidence >= 80 && words.length > 1) break;
+          words.pop();
+        }
+        const clean = words.filter((w) => !(wrongScript(w.text) && w.confidence < 85));
+        if (!clean.length) continue;
+        const real = clean.filter(realWord).length;
+        const avg = clean.reduce((s, w) => s + w.confidence, 0) / clean.length;
+        if (avg < 45 || real / clean.length < 0.5) continue;
+        if (clean.length === 1 && /^\d{1,3}$/.test(clean[0].text)) continue; // page number
+        kept.push((bullet ? '• ' : '') + clean.map((w) => w.text).join(' '));
+      }
+      if (kept.length) out.push(kept.join('\n'));
+    }
+    return out.join('\n\n');
   }
 
   async function handleFiles(fileList) {
@@ -288,33 +557,35 @@
     const lang = $('ocr-lang').value;
     store.set('ocrLang', lang);
     $('thumbs').innerHTML = '';
-    setProgress(0);
+    setStatus('');
     let worker;
     try {
-      images = [];
-      for (const f of files) {
-        const prepared = await prepareImage(f);
-        images.push(prepared);
+      const pagesToRead = [];
+      for (let i = 0; i < files.length; i++) {
+        const photo = await loadImage(files[i]);
+        const cropped = await cropStep(photo, i + 1, files.length);
         const t = document.createElement('img');
-        t.src = prepared.thumb;
+        t.src = cropped.toDataURL('image/jpeg', 0.5);
         t.alt = 'Test page';
         $('thumbs').appendChild(t);
+        pagesToRead.push(preprocess(cropped));
       }
+      setProgress(0);
       setStatus('Getting ready to read… (the first time takes a little longer)');
       let page = 0;
       worker = await Tesseract.createWorker(lang, 1, {
         logger: (m) => {
           if (m.status === 'recognizing text') {
-            setProgress((page + m.progress) / images.length);
-            setStatus(`Reading page ${page + 1} of ${images.length}…`);
+            setProgress((page + m.progress) / pagesToRead.length);
+            setStatus(`Reading page ${page + 1} of ${pagesToRead.length}…`);
           }
         },
       });
       await worker.setParameters({ preserve_interword_spaces: '1' });
       const pages = [];
-      for (page = 0; page < images.length; page++) {
-        const { data } = await worker.recognize(images[page].canvas);
-        pages.push(data.text);
+      for (page = 0; page < pagesToRead.length; page++) {
+        const { data } = await worker.recognize(pagesToRead[page]);
+        pages.push(textFromOcr(data));
       }
       setProgress(null);
       setStatus('');
@@ -345,7 +616,7 @@
   }
 
   // ---------- Parsing the test into questions / answers / sentences ----------
-  const Q_RE = /^(?:(?:question|q|שאלה|תרגיל)\s*(\d{1,3})\s*[.):\-]?|(\d{1,3})\s*[.)](?=\s|[A-Za-z\u0590-\u05FF(]))\s*(.*)$/i;
+  const Q_RE = /^(?:(?:question|q|שאלה|תרגיל)\s*(\d{1,3})\s*[.):\-]?|(\d{1,3})\s*[.)](?=\s|[A-Za-z\u0590-\u05FF(])|(\d{1,3}),(?=\s+[A-Z\u0590-\u05FF]))\s*(.*)$/i;
   const OPT_RE = /^(?:\(\s*([a-fא-ו1-6])\s*\)|([a-fA-Fא-ו])\s*[.)](?=\s|\d|[A-Z\u0590-\u05FF(]))\s*(.*)$/;
 
   function parseBlocks(raw) {
@@ -356,8 +627,12 @@
       if (!line) { cur = null; continue; }
       const q = line.match(Q_RE);
       const o = !q && line.match(OPT_RE);
-      if (q) {
-        cur = { kind: 'question', label: q[1] || q[2], text: q[3] || '' };
+      const bullet = !q && !o && line.match(/^[•●◦▪*\-–]\s+(.*)$/);
+      if (bullet) {
+        cur = { kind: 'text', text: bullet[1] };
+        blocks.push(cur);
+      } else if (q) {
+        cur = { kind: 'question', label: q[1] || q[2] || q[3], text: q[4] || '' };
         blocks.push(cur);
       } else if (o) {
         cur = { kind: 'option', label: o[1] || o[2], text: o[3] || '' };
@@ -375,7 +650,11 @@
 
   function splitSentences(text) {
     const parts = text
-      .replace(/([.!?…])\s+(?=\S)/g, '$1\u0001')
+      .replace(/([.!?…])\s+(?=\S)/g, (m, p, off, str) => {
+        const before = str.slice(Math.max(0, off - 8), off + 1);
+        if (/^[a-z]/.test(str.slice(off + m.length)) || /(?:^|[\s(])[A-Z]\.$/.test(before) || /\b(?:e\.g|i\.e|etc|vs|dr|mr|mrs|ms|st|approx|fig|no)\.$/i.test(before)) return m;
+        return p + '\u0001';
+      })
       .replace(/([:;])\s+(?=[^\d\s])/g, '$1\u0001') // but not "8 : 2" (division)
       .split('\u0001');
     const out = [];
@@ -400,6 +679,9 @@
   function toSpoken(text, W) {
     let s = text
       .replace(/_{2,}|\.{4,}|…{2,}/g, ` ${W.blank} `)
+      .replace(/\s*(?:->|=>|→|⇒)\s*/g, ` ${W.arrow} `)
+      .replace(/\s+[-–—]\s+/g, ', ')
+      .replace(/°\s*[cC]\b/g, W.degrees)
       .replace(/(\d)\s*-\s*(?=\d)/g, `$1${W.minus}`)
       .replace(/(\d)\s*[xX*]\s*(?=\d)/g, '$1 × ');
     // In Israeli schools ":" between numbers means "divided by".
@@ -415,10 +697,20 @@
   let segments = [];   // everything the teacher will say, in order
   let lang = 'en';
 
+  function scriptOf(text, fallback) {
+    const letters = (text.match(/[A-Za-z\u0590-\u05FF]/g) || []).length;
+    if (!letters) return fallback || 'en';
+    return (text.match(/[\u0590-\u05FF]/g) || []).length / letters > 0.4 ? 'he' : 'en';
+  }
+
   function build(raw) {
-    lang = HEB.test(raw) ? 'he' : 'en';
+    lang = scriptOf(raw);
     const W = WORDS[lang];
     const blocks = parseBlocks(raw);
+    // A test has questions (with "?", answer choices, or the word "question");
+    // anything else — like study notes — is just read, without "Question 3" and "next one".
+    const isTest = /\b(question|questions)\b|שאלה|שאלות/i.test(raw) ||
+      blocks.some((b) => b.kind === 'option' || (b.kind === 'question' && b.text.includes('?')));
     const testEl = $('test');
     testEl.innerHTML = '';
     testEl.setAttribute('dir', lang === 'he' ? 'rtl' : 'ltr');
@@ -426,7 +718,7 @@
 
     const say = (speak, extra) => segments.push(Object.assign({ speak, el: null, pause: 700 }, extra));
 
-    W.hello.forEach((h) => say(h, { pause: 600, chatter: true }));
+    (isTest ? W.hello : W.helloNotes).forEach((h) => say(h, { pause: 600, chatter: true }));
     let seenQuestion = false;
 
     blocks.forEach((b, bi) => {
@@ -436,7 +728,7 @@
       testEl.appendChild(div);
 
       if (b.kind === 'question') {
-        if (seenQuestion) say(rand(W.nextQ), { pause: 500, chatter: true, qStart: true });
+        if (seenQuestion && isTest) say(rand(W.nextQ), { pause: 500, chatter: true, qStart: true });
         seenQuestion = true;
         const num = document.createElement('span');
         num.className = 'qnum';
@@ -458,8 +750,10 @@
         div.appendChild(span);
         div.appendChild(document.createTextNode(' '));
 
-        let spoken = toSpoken(s, W);
-        if (si === 0 && b.kind === 'question') spoken = W.question(b.label) + ' ' + spoken;
+        // A sentence in the other language (English words in a Hebrew test) gets its own voice.
+        const segLang = scriptOf(s, lang);
+        let spoken = toSpoken(s, WORDS[segLang]);
+        if (si === 0 && b.kind === 'question') spoken = (isTest ? W.question(b.label) : b.label + '.') + ' ' + spoken;
         if (si === 0 && b.kind === 'option') spoken = W.option(b.label) + ' ' + spoken;
         const last = si === sentences.length - 1;
         const nextKind = blocks[bi + 1] && blocks[bi + 1].kind;
@@ -468,7 +762,8 @@
         if (last && b.kind === 'option') pause = 800;
         if (last && b.kind === 'option' && nextKind !== 'option') pause = 1500;
         if (si === 0 && b.kind === 'question' && !s) pause = 400;
-        const seg = { speak: spoken.trim(), el: span, pause, qIndex: b.kind === 'question' ? bi : undefined };
+        if (!isTest && last && b.kind === 'question') pause = 1000;
+        const seg = { speak: spoken.trim(), el: span, pause, lang: segLang, qIndex: b.kind === 'question' ? bi : undefined };
         // Mark the end of a question's answers so "wait after each question" knows where to stop.
         seg.endOfQuestion = last && nextKind === 'question' && seenQuestion;
         segments.push(seg);
@@ -478,7 +773,7 @@
       });
     });
 
-    W.end.forEach((h) => say(h, { pause: 500, chatter: true }));
+    (isTest ? W.end : W.endNotes).forEach((h) => say(h, { pause: 500, chatter: true }));
     refreshVoices();
   }
 
@@ -570,9 +865,10 @@
     if (!synth) { teacherLine('Reading aloud is not supported in this browser.'); playing = false; updatePlayBtn(); return; }
 
     const u = new SpeechSynthesisUtterance(seg.speak);
-    const v = currentVoice();
+    const segLang = seg.lang || lang;
+    const v = segLang === lang ? currentVoice() : voicesFor(segLang).sort((a, b) => scoreVoice(b) - scoreVoice(a))[0];
     if (v) u.voice = v;
-    u.lang = v ? v.lang : (lang === 'he' ? 'he-IL' : 'en-US');
+    u.lang = v ? v.lang : (segLang === 'he' ? 'he-IL' : 'en-US');
     const base = parseFloat($('rate').value);
     // Question numbers and chit-chat a touch brisker, the test itself a touch slower.
     u.rate = seg.chatter ? Math.min(1.1, base + 0.08) : base;
