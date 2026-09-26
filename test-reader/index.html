@@ -1,0 +1,736 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<title>Test Reader</title>
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+<style>
+  :root {
+    --bg: #f6f1e7;
+    --card: #fffdf8;
+    --ink: #2b2620;
+    --muted: #7a6f60;
+    --line: #e6dccb;
+    --accent: #2f7a5f;
+    --accent-ink: #ffffff;
+    --hl: #ffe89a;
+    --hl-ink: #2b2620;
+    --done: #a79c8b;
+    --danger: #b3462e;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #1b1a17;
+      --card: #25231f;
+      --ink: #efe8dc;
+      --muted: #a89f90;
+      --line: #3a362f;
+      --accent: #5bbf98;
+      --accent-ink: #10231b;
+      --hl: #5c4b12;
+      --hl-ink: #fff6d6;
+      --done: #7d7466;
+      --danger: #e27a60;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font: 18px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, "Noto Sans Hebrew", sans-serif;
+    padding: env(safe-area-inset-top) 16px calc(120px + env(safe-area-inset-bottom));
+  }
+  main { max-width: 820px; margin: 0 auto; }
+  header { display: flex; align-items: center; gap: 12px; padding: 20px 0 8px; }
+  header .face { font-size: 40px; line-height: 1; }
+  header h1 { margin: 0; font-size: 26px; }
+  header p { margin: 2px 0 0; color: var(--muted); font-size: 15px; }
+
+  .card {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 16px;
+    padding: 18px;
+    margin: 14px 0;
+  }
+  .drop {
+    display: block;
+    border: 2px dashed var(--line);
+    border-radius: 14px;
+    padding: 28px 16px;
+    text-align: center;
+    cursor: pointer;
+  }
+  .drop:hover, .drop.over { border-color: var(--accent); }
+  .drop strong { display: block; font-size: 20px; margin-bottom: 4px; }
+  .drop span { color: var(--muted); font-size: 15px; }
+  .drop input { display: none; }
+  .row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-top: 12px; }
+  label.inline { display: flex; align-items: center; gap: 8px; font-size: 15px; color: var(--muted); }
+  select, textarea, input[type=range] { font: inherit; color: inherit; }
+  select {
+    background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 6px 10px; font-size: 15px;
+    max-width: 100%;
+  }
+  textarea {
+    width: 100%; min-height: 260px; background: var(--bg); border: 1px solid var(--line);
+    border-radius: 12px; padding: 12px; font-size: 17px; line-height: 1.6; resize: vertical;
+  }
+  button {
+    font: inherit; font-size: 16px; border-radius: 12px; border: 1px solid var(--line);
+    background: var(--card); color: var(--ink); padding: 10px 16px; cursor: pointer;
+  }
+  button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 600; }
+  button:disabled { opacity: .5; cursor: default; }
+  .link { background: none; border: none; color: var(--accent); padding: 4px 0; text-decoration: underline; }
+
+  .thumbs { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+  .thumbs img { height: 90px; border-radius: 8px; border: 1px solid var(--line); }
+  .progress { height: 8px; background: var(--line); border-radius: 4px; overflow: hidden; margin-top: 12px; }
+  .progress div { height: 100%; width: 0; background: var(--accent); transition: width .2s; }
+  .status { color: var(--muted); font-size: 15px; margin-top: 8px; min-height: 1.5em; }
+  .status.error { color: var(--danger); }
+  .hidden { display: none !important; }
+
+  /* The test, as the student sees it while it is read */
+  #test { font-size: 22px; line-height: 1.8; letter-spacing: .01em; word-spacing: .08em; }
+  .block { margin: 0 0 14px; }
+  .block.question { margin-top: 26px; font-weight: 600; }
+  .block.question:first-child { margin-top: 0; }
+  .block.option { padding-inline-start: 28px; }
+  .qnum {
+    display: inline-block; min-width: 1.8em; margin-inline-end: 6px; color: var(--accent);
+  }
+  .seg { border-radius: 6px; padding: 1px 2px; cursor: pointer; transition: background .2s, color .2s; }
+  .seg:hover { background: color-mix(in srgb, var(--hl) 45%, transparent); }
+  .seg.read { color: var(--done); }
+  .seg.now { background: var(--hl); color: var(--hl-ink); }
+  .hint { color: var(--muted); font-size: 14px; margin: 0 0 12px; }
+
+  /* Player bar */
+  .player {
+    position: fixed; left: 0; right: 0; bottom: 0;
+    background: var(--card); border-top: 1px solid var(--line);
+    padding: 10px 16px calc(10px + env(safe-area-inset-bottom));
+  }
+  .player .inner { max-width: 820px; margin: 0 auto; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: center; }
+  .player button { min-width: 48px; min-height: 48px; }
+  .player .play { min-width: 120px; }
+  .player .speed { display: flex; align-items: center; gap: 6px; font-size: 14px; color: var(--muted); }
+  .player .speed input { width: 110px; }
+  .teacher-line { width: 100%; text-align: center; font-size: 14px; color: var(--muted); min-height: 1.4em; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <div class="face" aria-hidden="true">🧑‍🏫</div>
+    <div>
+      <h1>Test Reader</h1>
+      <p>Your private teacher. Take a photo of your test and I'll read it to you, slowly.</p>
+    </div>
+  </header>
+
+  <!-- Step 1: upload -->
+  <section class="card" id="upload-card">
+    <label class="drop" id="drop">
+      <input type="file" id="file" accept="image/*" multiple />
+      <strong>📷 Add a photo of the test</strong>
+      <span>Tap to take a photo or pick one. You can add several pages.</span>
+    </label>
+    <div class="row">
+      <label class="inline">Test language
+        <select id="ocr-lang">
+          <option value="heb+eng">Hebrew + English</option>
+          <option value="eng">English</option>
+          <option value="heb">Hebrew (עברית)</option>
+        </select>
+      </label>
+      <button class="link" id="paste-instead">…or type/paste the text instead</button>
+    </div>
+    <div class="thumbs" id="thumbs"></div>
+    <div class="progress hidden" id="progress"><div></div></div>
+    <div class="status" id="status"></div>
+  </section>
+
+  <!-- Step 2: read -->
+  <section class="card hidden" id="read-card">
+    <div class="row" style="margin-top:0; justify-content: space-between;">
+      <p class="hint" style="margin:0">Tap any sentence to hear it. Space = play/pause, ← → = sentence.</p>
+      <div class="row" style="margin-top:0">
+        <button id="edit-btn">✏️ Fix text</button>
+        <button id="new-btn">📷 New test</button>
+      </div>
+    </div>
+    <div id="editor" class="hidden" style="margin-top:12px">
+      <p class="hint">Photos aren't always read perfectly. Fix any mistakes here, then tap Done.
+        Start a question on its own line with a number like <b>1.</b> and answers with <b>a.</b> / <b>א.</b></p>
+      <textarea id="text" dir="auto" spellcheck="false"></textarea>
+      <div class="row"><button class="primary" id="done-btn">Done</button></div>
+    </div>
+    <div id="test" dir="auto" style="margin-top:16px"></div>
+  </section>
+</main>
+
+<div class="player hidden" id="player">
+  <div class="inner">
+    <div class="teacher-line" id="teacher-line"></div>
+    <button id="prev-q" title="Previous question" aria-label="Previous question">⏮</button>
+    <button id="prev-s" title="Previous sentence" aria-label="Previous sentence">◀</button>
+    <button class="primary play" id="play">▶ Read to me</button>
+    <button id="again" title="Say that again" aria-label="Say that again">↻</button>
+    <button id="next-s" title="Next sentence" aria-label="Next sentence">▶</button>
+    <button id="next-q" title="Next question" aria-label="Next question">⏭</button>
+    <label class="speed">🐢 <input type="range" id="rate" min="0.55" max="1.15" step="0.05" value="0.8" /> 🐇</label>
+    <label class="inline"><input type="checkbox" id="wait" /> Wait after each question</label>
+    <select id="voice" aria-label="Voice"></select>
+  </div>
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  const $ = (id) => document.getElementById(id);
+  const synth = window.speechSynthesis;
+  const HEB = /[֐-׿]/;
+
+  const store = {
+    get(k, d) { try { const v = localStorage.getItem('testreader.' + k); return v === null ? d : JSON.parse(v); } catch (e) { return d; } },
+    set(k, v) { try { localStorage.setItem('testreader.' + k, JSON.stringify(v)); } catch (e) {} },
+  };
+
+  // What the teacher says, in the test's language.
+  const WORDS = {
+    en: {
+      hello: ["Hi! I'm going to read your test to you, nice and slowly.", "Take your time. Let's start."],
+      question: (n) => `Question ${n}.`,
+      option: (l) => `${l.toUpperCase()}.`,
+      nextQ: ['Okay, next one.', 'Alright. Next question.', "Let's move on.", 'Good. Here is the next one.'],
+      waiting: "Take your time. Tap play when you're ready for the next question.",
+      end: ["That's the whole test.", 'You can tap any sentence if you want to hear it again. Good luck!'],
+      blank: 'blank',
+      sym: { '+': ' plus ', '=': ' equals ', '×': ' times ', '÷': ' divided by ', '%': ' percent', '<': ' is less than ', '>': ' is greater than ' },
+      minus: ' minus ',
+    },
+    he: {
+      hello: ['היי! אני אקריא לך את המבחן, לאט ובנחת.', 'קח את הזמן. בוא נתחיל.'],
+      question: (n) => `שאלה ${n}.`,
+      option: (l) => `${l}.`,
+      nextQ: ['טוב, נמשיך.', 'יופי. השאלה הבאה.', 'בוא נעבור לשאלה הבאה.', 'אוקיי, הנה השאלה הבאה.'],
+      waiting: 'קח את הזמן. לחץ על הפעלה כשתהיה מוכן לשאלה הבאה.',
+      end: ['זה כל המבחן.', 'אפשר ללחוץ על כל משפט כדי לשמוע אותו שוב. בהצלחה!'],
+      blank: 'ריק',
+      sym: { '+': ' ועוד ', '=': ' שווה ', '×': ' כפול ', '÷': ' חלקי ', '%': ' אחוז', '<': ' קטן מ ', '>': ' גדול מ ' },
+      minus: ' פחות ',
+    },
+  };
+
+  // ---------- OCR ----------
+  let images = [];
+
+  function setStatus(msg, isError) {
+    $('status').textContent = msg || '';
+    $('status').classList.toggle('error', !!isError);
+  }
+  function setProgress(p) {
+    $('progress').classList.toggle('hidden', p === null);
+    if (p !== null) $('progress').firstElementChild.style.width = Math.round(p * 100) + '%';
+  }
+
+  // Shrink huge phone photos and boost contrast — faster and more accurate OCR.
+  function prepareImage(file) {
+    return new Promise((resolve, reject) => {
+      const url = URL.createObjectURL(file);
+      const img = new Image();
+      img.onload = () => {
+        const max = 2400;
+        const scale = Math.min(1, max / Math.max(img.width, img.height));
+        const c = document.createElement('canvas');
+        c.width = Math.round(img.width * scale);
+        c.height = Math.round(img.height * scale);
+        const ctx = c.getContext('2d');
+        ctx.drawImage(img, 0, 0, c.width, c.height);
+        const data = ctx.getImageData(0, 0, c.width, c.height);
+        const px = data.data;
+        let lo = 255, hi = 0;
+        const gray = new Uint8ClampedArray(px.length / 4);
+        for (let i = 0, j = 0; i < px.length; i += 4, j++) {
+          const g = 0.299 * px[i] + 0.587 * px[i + 1] + 0.114 * px[i + 2];
+          gray[j] = g;
+          if (g < lo) lo = g;
+          if (g > hi) hi = g;
+        }
+        const range = Math.max(1, hi - lo);
+        for (let i = 0, j = 0; i < px.length; i += 4, j++) {
+          const v = ((gray[j] - lo) / range) * 255;
+          px[i] = px[i + 1] = px[i + 2] = v;
+        }
+        ctx.putImageData(data, 0, 0);
+        URL.revokeObjectURL(url);
+        resolve({ canvas: c, thumb: c.toDataURL('image/jpeg', 0.5) });
+      };
+      img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("Couldn't open that image.")); };
+      img.src = url;
+    });
+  }
+
+  async function handleFiles(fileList) {
+    const files = Array.from(fileList).filter((f) => f.type.startsWith('image/') || /\.(heic|jpe?g|png|webp)$/i.test(f.name));
+    if (!files.length) return;
+    if (typeof Tesseract === 'undefined') {
+      setStatus('The text-reading engine did not load. Check your internet connection and reload the page.', true);
+      return;
+    }
+    const lang = $('ocr-lang').value;
+    store.set('ocrLang', lang);
+    $('thumbs').innerHTML = '';
+    setProgress(0);
+    let worker;
+    try {
+      images = [];
+      for (const f of files) {
+        const prepared = await prepareImage(f);
+        images.push(prepared);
+        const t = document.createElement('img');
+        t.src = prepared.thumb;
+        t.alt = 'Test page';
+        $('thumbs').appendChild(t);
+      }
+      setStatus('Getting ready to read… (the first time takes a little longer)');
+      let page = 0;
+      worker = await Tesseract.createWorker(lang, 1, {
+        logger: (m) => {
+          if (m.status === 'recognizing text') {
+            setProgress((page + m.progress) / images.length);
+            setStatus(`Reading page ${page + 1} of ${images.length}…`);
+          }
+        },
+      });
+      await worker.setParameters({ preserve_interword_spaces: '1' });
+      const pages = [];
+      for (page = 0; page < images.length; page++) {
+        const { data } = await worker.recognize(images[page].canvas);
+        pages.push(data.text);
+      }
+      setProgress(null);
+      setStatus('');
+      const text = cleanOcr(pages.join('\n\n'));
+      if (!text.trim()) {
+        setStatus("I couldn't find any text in that photo. Try a sharper, well-lit photo taken straight on.", true);
+        return;
+      }
+      loadText(text);
+    } catch (err) {
+      console.error(err);
+      setProgress(null);
+      setStatus('Something went wrong reading the photo: ' + (err && err.message ? err.message : err), true);
+    } finally {
+      if (worker) worker.terminate();
+    }
+  }
+
+  function cleanOcr(t) {
+    return t
+      .replace(/\r/g, '')
+      .replace(/[|]{1,}/g, ' ')
+      .replace(/[ \t]+/g, ' ')
+      // Blank lines to fill in ("in the ______.") often vanish, leaving "in the ." behind.
+      .replace(/([A-Za-z\u0590-\u05FF,]) ([.?!])(?=\s|$)/g, '$1 ____$2')
+      .replace(/\n{3,}/g, '\n\n')
+      .trim();
+  }
+
+  // ---------- Parsing the test into questions / answers / sentences ----------
+  const Q_RE = /^(?:(?:question|q|שאלה|תרגיל)\s*(\d{1,3})\s*[.):\-]?|(\d{1,3})\s*[.)](?=\s|[A-Za-z\u0590-\u05FF(]))\s*(.*)$/i;
+  const OPT_RE = /^(?:\(\s*([a-fא-ו1-6])\s*\)|([a-fA-Fא-ו])\s*[.)](?=\s|\d|[A-Z\u0590-\u05FF(]))\s*(.*)$/;
+
+  function parseBlocks(raw) {
+    const blocks = [];
+    let cur = null;
+    for (const lineRaw of raw.split('\n')) {
+      const line = lineRaw.trim();
+      if (!line) { cur = null; continue; }
+      const q = line.match(Q_RE);
+      const o = !q && line.match(OPT_RE);
+      if (q) {
+        cur = { kind: 'question', label: q[1] || q[2], text: q[3] || '' };
+        blocks.push(cur);
+      } else if (o) {
+        cur = { kind: 'option', label: o[1] || o[2], text: o[3] || '' };
+        blocks.push(cur);
+      } else if (cur) {
+        // OCR wraps lines mid-sentence: glue them back (and undo hyphenation).
+        cur.text = /[A-Za-z]-$/.test(cur.text) ? cur.text.slice(0, -1) + line : (cur.text ? cur.text + ' ' + line : line);
+      } else {
+        cur = { kind: 'text', text: line };
+        blocks.push(cur);
+      }
+    }
+    return blocks;
+  }
+
+  function splitSentences(text) {
+    const parts = text
+      .replace(/([.!?…])\s+(?=\S)/g, '$1\u0001')
+      .replace(/([:;])\s+(?=[^\d\s])/g, '$1\u0001') // but not "8 : 2" (division)
+      .split('\u0001');
+    const out = [];
+    for (const p of parts) {
+      const s = p.trim();
+      if (!s) continue;
+      // Very long sentences get cut at commas: easier to follow, and some browsers
+      // stop speaking long utterances part-way.
+      if (s.length > 180) {
+        const chunks = s.replace(/,\s+/g, ',\u0001').split('\u0001');
+        let buf = '';
+        for (const c of chunks) {
+          if (buf && (buf + ' ' + c).length > 180) { out.push(buf); buf = c; } else buf = buf ? buf + ' ' + c : c;
+        }
+        if (buf) out.push(buf);
+      } else out.push(s);
+    }
+    return out;
+  }
+
+  // Make symbols and blanks sound the way a person would say them.
+  function toSpoken(text, W) {
+    let s = text
+      .replace(/_{2,}|\.{4,}|…{2,}/g, ` ${W.blank} `)
+      .replace(/(\d)\s*-\s*(?=\d)/g, `$1${W.minus}`)
+      .replace(/(\d)\s*[xX*]\s*(?=\d)/g, '$1 × ');
+    // In Israeli schools ":" between numbers means "divided by".
+    if (W === WORDS.he) s = s.replace(/(\d)\s*:\s*(?=\d)/g, '$1 ÷ ');
+    for (const [k, v] of Object.entries(W.sym)) s = s.split(k).join(v);
+    return s.replace(/\s+/g, ' ').trim();
+  }
+
+  const rand = (a) => a[Math.floor(Math.random() * a.length)];
+  // Pauses vary a little, like a real person reading.
+  const jitter = (ms) => Math.round(ms * (0.85 + Math.random() * 0.3));
+
+  let segments = [];   // everything the teacher will say, in order
+  let lang = 'en';
+
+  function build(raw) {
+    lang = HEB.test(raw) ? 'he' : 'en';
+    const W = WORDS[lang];
+    const blocks = parseBlocks(raw);
+    const testEl = $('test');
+    testEl.innerHTML = '';
+    testEl.setAttribute('dir', lang === 'he' ? 'rtl' : 'ltr');
+    segments = [];
+
+    const say = (speak, extra) => segments.push(Object.assign({ speak, el: null, pause: 700 }, extra));
+
+    W.hello.forEach((h) => say(h, { pause: 600, chatter: true }));
+    let seenQuestion = false;
+
+    blocks.forEach((b, bi) => {
+      const div = document.createElement('div');
+      div.className = 'block ' + b.kind;
+      div.dir = 'auto';
+      testEl.appendChild(div);
+
+      if (b.kind === 'question') {
+        if (seenQuestion) say(rand(W.nextQ), { pause: 500, chatter: true, qStart: true });
+        seenQuestion = true;
+        const num = document.createElement('span');
+        num.className = 'qnum';
+        num.textContent = b.label + '.';
+        div.appendChild(num);
+      } else if (b.kind === 'option') {
+        const num = document.createElement('span');
+        num.className = 'qnum';
+        num.textContent = b.label + '.';
+        div.appendChild(num);
+      }
+
+      const sentences = splitSentences(b.text);
+      if (!sentences.length && b.kind !== 'text') sentences.push('');
+      sentences.forEach((s, si) => {
+        const span = document.createElement('span');
+        span.className = 'seg';
+        span.textContent = s;
+        div.appendChild(span);
+        div.appendChild(document.createTextNode(' '));
+
+        let spoken = toSpoken(s, W);
+        if (si === 0 && b.kind === 'question') spoken = W.question(b.label) + ' ' + spoken;
+        if (si === 0 && b.kind === 'option') spoken = W.option(b.label) + ' ' + spoken;
+        const last = si === sentences.length - 1;
+        const nextKind = blocks[bi + 1] && blocks[bi + 1].kind;
+        let pause = /\?\s*$/.test(s) ? 1100 : 750;
+        if (last && b.kind === 'question') pause = 1300;          // let the question sink in
+        if (last && b.kind === 'option') pause = 800;
+        if (last && b.kind === 'option' && nextKind !== 'option') pause = 1500;
+        if (si === 0 && b.kind === 'question' && !s) pause = 400;
+        const seg = { speak: spoken.trim(), el: span, pause, qIndex: b.kind === 'question' ? bi : undefined };
+        // Mark the end of a question's answers so "wait after each question" knows where to stop.
+        seg.endOfQuestion = last && nextKind === 'question' && seenQuestion;
+        segments.push(seg);
+        const idx = segments.length - 1;
+        span.addEventListener('click', () => { playFrom(idx); });
+        if (si === 0 && b.kind === 'question') seg.qStart = true;
+      });
+    });
+
+    W.end.forEach((h) => say(h, { pause: 500, chatter: true }));
+    refreshVoices();
+  }
+
+  // ---------- Voices ----------
+  const NOVELTY = /fred|zarvox|trinoids|cellos|bells|bubbles|bahh|boing|deranged|hysterical|pipe organ|whisper|wobble|albert|bad news|good news|junior|kathy|ralph|jester|organ|rocko|grandma|grandpa|eddy|flo|reed|rocko|sandy|shelley/i;
+  const NATURAL = /ava|nathan|samantha|allison|susan|zoe|tom|karen|moira|tessa|daniel|serena|evan|siri|carmit|hila|avri|natural|online/i;
+  const QUALITY = /premium|enhanced|neural|natural|siri|online/i;
+
+  function voicesFor(l) {
+    if (!synth) return [];
+    const want = l === 'he' ? /^(he|iw)/i : /^en/i;
+    return synth.getVoices().filter((v) => want.test(v.lang));
+  }
+  function scoreVoice(v) {
+    let s = 0;
+    if (QUALITY.test(v.name) || QUALITY.test(v.voiceURI || '')) s += 5;
+    if (NATURAL.test(v.name)) s += 3;
+    if (NOVELTY.test(v.name)) s -= 10;
+    if (/compact/i.test(v.voiceURI || '')) s -= 2;
+    if (/en[-_]US/i.test(v.lang)) s += 1;
+    if (v.localService === false) s += 1;
+    return s;
+  }
+  function refreshVoices() {
+    const sel = $('voice');
+    const list = voicesFor(lang).sort((a, b) => scoreVoice(b) - scoreVoice(a));
+    const saved = store.get('voice.' + lang, null);
+    sel.innerHTML = '';
+    list.forEach((v) => {
+      const o = document.createElement('option');
+      o.value = v.voiceURI;
+      o.textContent = v.name.replace(/\s*\(.*\)\s*$/, '') + ' (' + v.lang + ')';
+      sel.appendChild(o);
+    });
+    if (!list.length) {
+      const o = document.createElement('option');
+      o.textContent = 'Default voice';
+      sel.appendChild(o);
+      if (lang === 'he' && synth && synth.getVoices().length) {
+        teacherLine('No Hebrew voice on this device. On iPad: Settings → Accessibility → Spoken Content → Voices → Hebrew.');
+      }
+    } else if (saved && list.some((v) => v.voiceURI === saved)) sel.value = saved;
+  }
+  function currentVoice() {
+    const uri = $('voice').value;
+    return voicesFor(lang).find((v) => v.voiceURI === uri) || null;
+  }
+  if (synth) {
+    if (typeof synth.addEventListener === 'function') synth.addEventListener('voiceschanged', refreshVoices);
+    else synth.onvoiceschanged = refreshVoices;
+  }
+
+  // ---------- The teacher ----------
+  let idx = 0;
+  let playing = false;
+  let token = 0;     // bumps on every jump so stale callbacks are ignored
+  let timer = null;
+
+  function teacherLine(t) { $('teacher-line').textContent = t || ''; }
+
+  function paint() {
+    segments.forEach((s, i) => {
+      if (!s.el) return;
+      s.el.classList.toggle('now', i === idx);
+      s.el.classList.toggle('read', i < idx);
+    });
+    const s = segments[idx];
+    if (s && s.el) s.el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  }
+
+  function updatePlayBtn() {
+    $('play').textContent = playing ? '⏸ Pause' : (idx > 0 && idx < segments.length ? '▶ Continue' : '▶ Read to me');
+  }
+
+  function stopSpeech() {
+    token++;
+    clearTimeout(timer);
+    if (synth) synth.cancel();
+  }
+
+  function speakCurrent() {
+    const my = ++token;
+    clearTimeout(timer);
+    const seg = segments[idx];
+    if (!seg) { finish(); return; }
+    paint();
+    teacherLine(seg.chatter ? '🧑‍🏫 ' + seg.speak : '');
+    if (!seg.speak) { advance(my, seg); return; }
+    if (!synth) { teacherLine('Reading aloud is not supported in this browser.'); playing = false; updatePlayBtn(); return; }
+
+    const u = new SpeechSynthesisUtterance(seg.speak);
+    const v = currentVoice();
+    if (v) u.voice = v;
+    u.lang = v ? v.lang : (lang === 'he' ? 'he-IL' : 'en-US');
+    const base = parseFloat($('rate').value);
+    // Question numbers and chit-chat a touch brisker, the test itself a touch slower.
+    u.rate = seg.chatter ? Math.min(1.1, base + 0.08) : base;
+    u.pitch = 1;
+    let done = false;
+    const onDone = () => { if (done) return; done = true; advance(my, seg); };
+    u.onend = onDone;
+    u.onerror = (e) => {
+      if (e && (e.error === 'interrupted' || e.error === 'canceled')) return;
+      onDone();
+    };
+    // Some browsers drop an utterance spoken in the same tick as cancel().
+    setTimeout(() => { if (my === token) synth.speak(u); }, 60);
+  }
+
+  function advance(my, seg) {
+    if (my !== token || !playing) return;
+    if (seg.endOfQuestion && $('wait').checked) {
+      idx++;
+      playing = false;
+      updatePlayBtn();
+      paint();
+      teacherLine('🧑‍🏫 ' + WORDS[lang].waiting);
+      return;
+    }
+    timer = setTimeout(() => {
+      if (my !== token || !playing) return;
+      idx++;
+      speakCurrent();
+    }, jitter(seg.pause));
+  }
+
+  function finish() {
+    playing = false;
+    idx = segments.length;
+    paint();
+    idx = 0;
+    updatePlayBtn();
+  }
+
+  function play() {
+    if (!segments.length) return;
+    if (idx >= segments.length) idx = 0;
+    playing = true;
+    updatePlayBtn();
+    speakCurrent();
+  }
+  function pause() {
+    playing = false;
+    stopSpeech();
+    updatePlayBtn();
+    paint();
+  }
+  function playFrom(i) {
+    idx = Math.max(0, Math.min(segments.length - 1, i));
+    playing = true;
+    stopSpeech();
+    updatePlayBtn();
+    speakCurrent();
+  }
+  // Skip the teacher's chit-chat when stepping manually.
+  function step(dir) {
+    let i = idx + dir;
+    while (segments[i] && segments[i].chatter) i += dir;
+    if (i < 0 || i >= segments.length) return;
+    playFrom(i);
+  }
+  function jumpQuestion(dir) {
+    const starts = segments.map((s, i) => (s.qStart && !s.chatter ? i : -1)).filter((i) => i >= 0);
+    if (!starts.length) return step(dir);
+    let target;
+    if (dir > 0) target = starts.find((i) => i > idx);
+    else {
+      const before = starts.filter((i) => i < idx);
+      // If we're already inside a question, "back" restarts it; tap again for the one before.
+      target = before.length ? before[before.length - 1] : starts[0];
+    }
+    if (target === undefined) return;
+    playFrom(target);
+  }
+
+  // ---------- Wiring ----------
+  function loadText(text) {
+    $('text').value = text;
+    stopSpeech();
+    playing = false;
+    idx = 0;
+    teacherLine('');
+    build(text);
+    paint();
+    updatePlayBtn();
+    $('upload-card').classList.add('hidden');
+    $('read-card').classList.remove('hidden');
+    $('player').classList.remove('hidden');
+    $('editor').classList.add('hidden');
+    window.scrollTo({ top: 0 });
+  }
+
+  $('file').addEventListener('change', (e) => { handleFiles(e.target.files); e.target.value = ''; });
+  const drop = $('drop');
+  drop.addEventListener('dragover', (e) => { e.preventDefault(); drop.classList.add('over'); });
+  drop.addEventListener('dragleave', () => drop.classList.remove('over'));
+  drop.addEventListener('drop', (e) => { e.preventDefault(); drop.classList.remove('over'); handleFiles(e.dataTransfer.files); });
+  document.addEventListener('paste', (e) => {
+    if ($('upload-card').classList.contains('hidden')) return;
+    const files = Array.from(e.clipboardData.files || []);
+    if (files.length) handleFiles(files);
+  });
+
+  $('paste-instead').addEventListener('click', () => {
+    loadText('');
+    $('editor').classList.remove('hidden');
+    $('text').focus();
+  });
+  $('edit-btn').addEventListener('click', () => {
+    pause();
+    $('editor').classList.toggle('hidden');
+  });
+  $('done-btn').addEventListener('click', () => loadText($('text').value));
+  $('new-btn').addEventListener('click', () => {
+    pause();
+    $('player').classList.add('hidden');
+    $('read-card').classList.add('hidden');
+    $('upload-card').classList.remove('hidden');
+    $('thumbs').innerHTML = '';
+    setStatus('');
+  });
+
+  $('play').addEventListener('click', () => (playing ? pause() : play()));
+  $('again').addEventListener('click', () => playFrom(idx >= segments.length ? segments.length - 1 : idx));
+  $('prev-s').addEventListener('click', () => step(-1));
+  $('next-s').addEventListener('click', () => step(1));
+  $('prev-q').addEventListener('click', () => jumpQuestion(-1));
+  $('next-q').addEventListener('click', () => jumpQuestion(1));
+  $('rate').addEventListener('change', () => store.set('rate', $('rate').value));
+  $('wait').addEventListener('change', () => store.set('wait', $('wait').checked));
+  $('voice').addEventListener('change', () => { store.set('voice.' + lang, $('voice').value); if (playing) playFrom(idx); });
+  $('ocr-lang').value = store.get('ocrLang', 'heb+eng');
+  $('rate').value = store.get('rate', '0.8');
+  $('wait').checked = store.get('wait', false);
+
+  document.addEventListener('keydown', (e) => {
+    if ($('player').classList.contains('hidden')) return;
+    if (/^(TEXTAREA|INPUT|SELECT)$/.test(e.target.tagName) && e.target.type !== 'range' && e.target.type !== 'checkbox') return;
+    const rtl = lang === 'he';
+    if (e.code === 'Space') { e.preventDefault(); playing ? pause() : play(); }
+    else if (e.key === 'ArrowRight') { e.preventDefault(); step(rtl ? -1 : 1); }
+    else if (e.key === 'ArrowLeft') { e.preventDefault(); step(rtl ? 1 : -1); }
+    else if (e.key === 'ArrowDown') { e.preventDefault(); jumpQuestion(1); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); jumpQuestion(-1); }
+  });
+
+  // Chrome stops speaking if the tab is hidden for a while; keep things tidy.
+  window.addEventListener('pagehide', stopSpeech);
+
+  // Test hook
+  window.__testReader = { parseBlocks, splitSentences, toSpoken: (t, l) => toSpoken(t, WORDS[l || 'en']), loadText, get segments() { return segments; } };
+})();
+</script>
+</body>
+</html>
