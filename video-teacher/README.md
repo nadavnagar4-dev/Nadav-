@@ -12,7 +12,15 @@ python3 build.py
 python3 build.py --lesson he content.js lesson.html "Topic Video Lesson"   # a lesson from a content block
 ```
 
-## The voice
+## Real voice (the default)
+
+    python3 tools/make_lesson.py content.js OUT_DIR "Topic Lecture English" [--voice af_heart]
+
+records every subtitle line with the Kokoro neural voice (Heart by default), builds the mouth tracks
+and writes `OUT_DIR/index.html`; publish it with `s/*.jpg` and `a/*.mp3`. The player switches to the
+recordings automatically when the content block has `AUDIO`.
+
+## The device voice (fallback)
 
 The page speaks with the device's own voices (Web Speech API), so the quality ceiling is the best voice on the device. Download *Carmit (Enhanced)* for Hebrew and a *Premium* English voice (Zoe, Ava) in Settings › Accessibility › Read & Speak › Voices.
 

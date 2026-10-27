@@ -2,6 +2,9 @@
 
 Paste this into the Project's instructions. Upload `video-teacher-template-HE.html` and `video-teacher-template-EN.html` as Project files (replace the old ones).
 
+## Default: the real voice
+Nadav's chosen version is the **real-voice lesson**: the narration is recorded with a neural voice (Kokoro, voice **Heart** / `af_heart`) and the player plays the recordings. Always make lessons this way. Recording needs Claude Code (it runs the voice model); a chat Project can write the content block, but the lesson must be recorded and published from Claude Code with `video-teacher/tools/make_lesson.py`.
+
 ## When to use
 Whenever Nadav sends a lecture (PDF, PPTX, or slide images) and asks for a video lesson (שיעור וידאו / video lesson), build a narrated slide-by-slide lesson from the matching template:
 - Hebrew lesson (default) → `video-teacher-template-HE.html`
