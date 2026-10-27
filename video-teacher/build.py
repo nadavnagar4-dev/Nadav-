@@ -41,7 +41,8 @@ UI = {
   counter:(c,n)=>c===0?'פתיחה':c===n-1?'טיפ למבחן':`שקופית ${c} מתוך ${n-2}`,
   play:'▶ נגן', pause:'❚❚ עצור', keyNext:'ArrowLeft', keyPrev:'ArrowRight',
   vLoading:'טוען את הסרטון…', vReady:'הסרטון נטען. בכל שקופית תופיע התמונה מהסרטון.', vSwap:'החלף סרטון',
-  vError:'לא הצלחתי לפתוח את הקובץ. נסה לבחור אותו שוב מ-Files.'
+  vError:'לא הצלחתי לפתוח את הקובץ. נסה לבחור אותו שוב מ-Files.',
+  recorded:'הקריינות הוקלטה מראש בקול נוירוני טבעי. מקשים: רווח לעצירה, חצים למעבר. לחיצה על שורה בכתוביות מתחילה ממנה.'
 };""",
 "en": r"""const UI={
   defHe:'Hebrew default', defEn:'Device default English voice (set in Settings)',
@@ -52,7 +53,8 @@ UI = {
   counter:(c,n)=>c===0?'Intro':c===n-1?'Exam tip':`Slide ${c} / ${n-2}`,
   play:'▶ Play', pause:'❚❚ Pause', keyNext:'ArrowRight', keyPrev:'ArrowLeft',
   vLoading:'Loading the video…', vReady:'Video loaded. Each slide shows its picture from the video.', vSwap:'Change video',
-  vError:"Couldn't open the file. Try choosing it again from Files."
+  vError:"Couldn't open the file. Try choosing it again from Files.",
+  recorded:'The narration was recorded with a natural neural voice. Keys: space to pause, arrows to move. Tap a subtitle line to start from it.'
 };""",
 }
 

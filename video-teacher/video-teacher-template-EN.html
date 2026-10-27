@@ -208,7 +208,8 @@ const UI={
   counter:(c,n)=>c===0?'Intro':c===n-1?'Exam tip':`Slide ${c} / ${n-2}`,
   play:'▶ Play', pause:'❚❚ Pause', keyNext:'ArrowRight', keyPrev:'ArrowLeft',
   vLoading:'Loading the video…', vReady:'Video loaded. Each slide shows its picture from the video.', vSwap:'Change video',
-  vError:"Couldn't open the file. Try choosing it again from Files."
+  vError:"Couldn't open the file. Try choosing it again from Files.",
+  recorded:'The narration was recorded with a natural neural voice. Keys: space to pause, arrows to move. Tap a subtitle line to start from it.'
 };
 const H=(t)=>['h',t], E=(t)=>['e',t];
 
@@ -243,6 +244,8 @@ const SAY={};
 for(let i=1;i<S.length-1;i++) if(!S[i].html && !S[i].img) S[i].img=`s/p-${String(i).padStart(2,'0')}.jpg`;
 // optional parts of the content block
 const SAYM=typeof SAY!=='undefined'?SAY:{}, FIXM=typeof FIX!=='undefined'?FIX:{}, TSM=typeof TS!=='undefined'?TS:{};
+// AUDIO: the narration was recorded with a neural voice (a/SS-LL.mp3 per subtitle line); lips = loudness per 50 ms
+const AUD=typeof AUDIO!=='undefined'?AUDIO:null;
 if(typeof TOPIC!=='undefined'){ document.querySelector('h1 .topic').textContent=TOPIC; }
 
 const $=id=>document.getElementById(id);
@@ -558,12 +561,39 @@ function speakSeg(){
     else { playing=false; updPlay(); }
     return; }
   markSeg();
+  if(AUD){ speakAudio(my); return; }
   if(!synth){ // no speech engine: just run the subtitles at reading speed
     later(()=>{ if(my===run&&playing){ seg++; speakSeg(); } },x.s[seg][1].length*70/(+$('speed').value)+600); return; }
   const {starts,plan}=planSlide(x,seg);
   speakPlan(plan,0,()=>{ if(my===run&&playing){ seg=x.s.length; speakSeg(); } },
     pos=>{ const ns=segAt(starts,pos); if(ns!==seg && ns>seg){ seg=ns; markSeg(); } });
 }
+
+/* ---------- recorded narration ---------- */
+const aud=new Audio(); aud.preload='auto'; aud.setAttribute('playsinline','');
+const pad2=n=>String(n).padStart(2,'0'), afile=(i,j)=>`a/${pad2(i)}-${pad2(j)}.mp3`;
+let lipRAF=0, audStarted=false;
+const LEVEL_SHAPE=[0,1,2,3,4];
+function lipFollow(key){ const env=(AUD.lips||{})[key]; cancelAnimationFrame(lipRAF);
+  const tick=()=>{ if(aud.paused||aud.ended){ setMouth(0); return; }
+    const v=env? (+env[Math.floor(aud.currentTime*20)]||0) : (Math.random()*5|0); setMouth(LEVEL_SHAPE[v]); lipRAF=requestAnimationFrame(tick); };
+  tick(); }
+function speakAudio(my){
+  const x=S[cur], line=x.s[seg], rate=+$('speed').value, key=`${pad2(cur)}-${pad2(seg)}`;
+  audStarted=true; aud.src=afile(cur,seg); aud.playbackRate=rate; aud.defaultPlaybackRate=rate;
+  const p=shape(line[1],seg,x.s.length);
+  aud.onplaying=()=>{ if(my!==run) return; talking=true; clearTimeout(mouthT); lipFollow(key); gesture(p); };
+  const next=(ms)=>{ if(my!==run) return; talking=false; setMouth(0); seg++; later(()=>{ if(my===run&&playing) speakSeg(); },ms/rate); };
+  aud.onended=()=>{ const t=line[1].trim(); next(/\?$/.test(t)?520:/(\.\.\.|…)$/.test(t)?620:/!$/.test(t)?360:300); };
+  aud.onerror=()=>{ if(my!==run) return; // a missing file: say this line with the device voice instead
+    if(synth){ const u=new SpeechSynthesisUtterance(spoken(line[1],line[0])); useVoice(u,line[0]==='e'?enV:heV,line[0]==='e'?'en-US':'he-IL'); u.rate=rate;
+      u.onend=()=>next(300); u.onerror=()=>next(300); startTalk(); synth.speak(u); } else next(300); };
+  const pr=aud.play(); if(pr&&pr.catch) pr.catch(e=>{ if(my===run && e && e.name==='NotAllowedError') pause(); });
+  // fetch the next line early so there is no gap
+  const nx=x.s[seg+1]?afile(cur,seg+1):(S[cur+1]?afile(cur+1,0):null); if(nx){ const pre=new Audio(); pre.preload='auto'; pre.src=nx; }
+}
+if(AUD){ ['voice','termmode','envoice','testv'].forEach(id=>{ if($(id)) $(id).hidden=true; }); $('breath').parentNode.hidden=true;
+  $('vdiag').hidden=true; setTimeout(()=>{ $('note').textContent=UI.recorded; },0); }
 
 /* ---------- player ---------- */
 const jump=$('jump');
@@ -617,11 +647,14 @@ function markSeg(){ updateCC();
     d.classList.toggle('past',playing&&i<seg); d.classList.toggle('now',i===seg&&playing);
     if(i===seg&&playing) d.scrollIntoView({block:'nearest',behavior:'smooth'});});
 }
-function stopAudio(){ run++; clearTimeout(watchdog); timers.forEach(clearTimeout); timers=[]; if(synth) synth.cancel(); stopTalk(); }
+function stopAudio(){ run++; clearTimeout(watchdog); timers.forEach(clearTimeout); timers=[]; if(synth) synth.cancel();
+  if(AUD){ aud.onended=aud.onerror=aud.onplaying=null; aud.pause(); cancelAnimationFrame(lipRAF); } stopTalk(); }
 function updPlay(){ $('play').textContent=playing?UI.pause:UI.play; if(!playing) stopTalk(); markSeg(); }
 function play(){ const first=!$('startBtn').hidden; $('startBtn').hidden=true; playing=true; updPlay(); stopAudio(); initAudio();
   // iPad: speech must start inside the tap, so say a silent word right away
-  if(synth){ try{ const u=new SpeechSynthesisUtterance(' '); u.volume=0; synth.speak(u); }catch(e){} }
+  if(synth && !AUD){ try{ const u=new SpeechSynthesisUtterance(' '); u.volume=0; synth.speak(u); }catch(e){} }
+  // iPad: audio must start inside the tap, so start the first file now (speakAudio takes over right after)
+  if(AUD){ audStarted=false; aud.src=afile(cur,Math.min(seg,S[cur].s.length-1)); const pr=aud.play(); if(pr&&pr.then) pr.then(()=>{ if(!audStarted) aud.pause(); }).catch(()=>{}); }
   if(first){ pulse('wave',1100); later(()=>{ if(playing) speakSeg(); },700); } else later(speakSeg,150); }
 function pause(){ playing=false; stopAudio(); updPlay(); }
 function go(i){ cur=Math.max(0,Math.min(S.length-1,i)); seg=0; stopAudio(); render(); if(playing) later(speakSeg,250); }
