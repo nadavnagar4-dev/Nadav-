@@ -5,6 +5,8 @@ Paste this into the Project's instructions. Upload `video-teacher-template-HE.ht
 ## Default: the real voice
 Nadav's chosen version is the **real-voice lesson**: the narration is recorded with a neural voice (Kokoro, voice **Heart** / `af_heart`) and the player plays the recordings. Always make lessons this way. Recording needs Claude Code (it runs the voice model); a chat Project can write the content block, but the lesson must be recorded and published from Claude Code with `video-teacher/tools/make_lesson.py`.
 
+**Hebrew lessons** use the same idea with the Hebrew neural voice **Shaul** (Kokoro Hebrew, `he_shaul`, Nadav's choice). Besides `SAY`, a Hebrew lesson needs an `ipa-he.json` next to the content: every `E(...)` term → its Israeli pronunciation in IPA (see `lessons/parasitology/ipa-he.json`). Record with `video-teacher/tools/record_he.py` in Claude Code (the claude.ai Project can't record audio).
+
 ## When to use
 Whenever Nadav sends a lecture (PDF, PPTX, or slide images) and asks for a video lesson (שיעור וידאו / video lesson), build a narrated slide-by-slide lesson from the matching template:
 - Hebrew lesson (default) → `video-teacher-template-HE.html`
