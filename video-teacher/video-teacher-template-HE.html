@@ -633,9 +633,9 @@ function render(){
 }
 function updateCC(){
   const x=S[cur], seg_=x&&x.s[seg], cc=$('cc');
-  if(!playing||!seg_){ cc.hidden=true; return; }
-  const [l,t]=seg_, sp=$('ccText');
-  sp.textContent=t; sp.dir=(l==='e'?'ltr':'rtl'); cc.hidden=false;
+  cc.hidden=true;   // no caption on the slide itself: the lines are in the subtitle list under it
+  if(!playing||!seg_) return;
+  const sp=$('ccText');
   if(sp.dataset.k!==cur+':'+seg){ sp.dataset.k=cur+':'+seg; T.classList.remove('lean'); void T.offsetWidth; T.classList.add('lean'); }
 }
 function markSeg(){ updateCC();

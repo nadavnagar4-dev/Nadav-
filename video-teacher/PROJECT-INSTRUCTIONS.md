@@ -60,7 +60,7 @@ The voice engine reads the punctuation to decide melody, speed and pauses, so th
 - **Voices:** Hebrew = "iPad default voice" (whatever is set in Settings › Accessibility › Read & Speak › Voices, e.g. Siri), fallback Carmit (Enhanced). English terms / English lessons = iPad default English voice (e.g. Zoe Premium). The default works by leaving the utterance voice unset. A real neural voice (Microsoft "Natural" voices in Edge) is picked automatically when the device has one. Voice lists let him pick any voice the device exposes; robotic novelty/Eloquence voices go to the bottom. "🔊 נסה קול / Test voice" plays a sample. Choices (voice, speed, breaths) are remembered.
 - **Hebrew terms:** default "מונחים באנגלית: באותו קול" — one voice, Israeli accent from `SAY`. The other option switches terms to the English voice.
 - **Flow:** whole sentences, pauses sized by punctuation and sentence length; between slides he finishes the thought, turns to the new slide, looks at it for a moment, then talks. The subtitle line being spoken is highlighted; tapping a subtitle line starts from it.
-- **Captions:** the current line shows as a subtitle at the bottom of the slide while playing; the full subtitle list is under the slide.
+- **Captions:** nothing covers the slide; the subtitle list under the slide highlights the line being spoken.
 - **Controls:** play/pause, back/next, speed (slow / normal / fast / very fast), slide jump, voice lists, test voice, breaths, "voices the lesson sees" diagnostic with a tip for downloading better voices.
 
 ## Special cases
