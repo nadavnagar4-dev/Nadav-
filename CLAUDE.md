@@ -20,5 +20,7 @@ https://claude.ai/artifact/QLTRdBpSRtThoPnBJ2djUg . Write `ipa-he.json` (term â†
     python video-teacher/tools/record_he.py content-he.js ipa-he.json OUT_DIR   # Python <3.13, see its docstring
     python3 video-teacher/tools/lips.py OUT_DIR
 
-append `const AUDIO={voice:'Kokoro he_shaul',lips:<lips.json>};` to the content and build with
+append `const AUDIO={voice:'Kokoro he_shaul',lips:<lips.json>,join:<join.json>};` to the content
+(join.json comes from record_he.py: English terms are recorded inside their Hebrew sentence, and the player
+plays those lines back to back with no pause) and build with
 `build.py --lesson he`. Models come from huggingface.co; the environment must allow `*.hf.co`.

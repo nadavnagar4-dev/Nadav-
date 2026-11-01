@@ -15,3 +15,8 @@ Done (2026-10-27): Parasitology L5 Hebrew lesson from Nadav's Slides deck (https
 Content in `lessons/parasitology-l5/`. Slide images rendered from the deck's HTML with `tools/render_slides.js`
 (the deck's own cover / intro / exam-tip slides are used as images, so no INTRO/OUTRO cards).
 Publish in two calls: an Artifact publish takes at most 255 files.
+
+Done (2026-11-01): English terms in Hebrew lessons sounded wrong because each term was recorded alone and the
+player paused around it. `tools/record_he.py` now records the Hebrew line before a term, the term and the line
+after it as one utterance and cuts it back into lines with the model's own timings; it writes `join.json`, and
+the player (`AUDIO.join`) plays those lines back to back. L5 re-recorded and republished this way.

@@ -240,7 +240,8 @@ const FIX={};
 for(let i=1;i<S.length-1;i++) if(!S[i].html && !S[i].img) S[i].img=`s/p-${String(i).padStart(2,'0')}.jpg`;
 // optional parts of the content block
 const SAYM=typeof SAY!=='undefined'?SAY:{}, FIXM=typeof FIX!=='undefined'?FIX:{}, TSM=typeof TS!=='undefined'?TS:{};
-// AUDIO: the narration was recorded with a neural voice (a/SS-LL.mp3 per subtitle line); lips = loudness per 50 ms
+// AUDIO: the narration was recorded with a neural voice (a/SS-LL.mp3 per subtitle line); lips = loudness per 50 ms;
+// join = lines whose recording runs straight into the next line (a term said inside its sentence)
 const AUD=typeof AUDIO!=='undefined'?AUDIO:null;
 if(typeof TOPIC!=='undefined'){ document.querySelector('h1 .topic').textContent=TOPIC; }
 
@@ -580,7 +581,8 @@ function speakAudio(my){
   const p=shape(line[1],seg,x.s.length);
   aud.onplaying=()=>{ if(my!==run) return; talking=true; clearTimeout(mouthT); lipFollow(key); gesture(p); };
   const next=(ms)=>{ if(my!==run) return; talking=false; setMouth(0); seg++; later(()=>{ if(my===run&&playing) speakSeg(); },ms/rate); };
-  aud.onended=()=>{ const t=line[1].trim(); next(/\?$/.test(t)?520:/(\.\.\.|…)$/.test(t)?620:/!$/.test(t)?360:300); };
+  // a line recorded in one breath with the next one (AUDIO.join) runs straight into it
+  aud.onended=()=>{ const t=line[1].trim(); next((AUD.join||[]).includes(key)?0:/\?$/.test(t)?520:/(\.\.\.|…)$/.test(t)?620:/!$/.test(t)?360:300); };
   aud.onerror=()=>{ if(my!==run) return; // a missing file: say this line with the device voice instead
     if(synth){ const u=new SpeechSynthesisUtterance(spoken(line[1],line[0])); useVoice(u,line[0]==='e'?enV:heV,line[0]==='e'?'en-US':'he-IL'); u.rate=rate;
       u.onend=()=>next(300); u.onerror=()=>next(300); startTalk(); synth.speak(u); } else next(300); };
